@@ -37,18 +37,18 @@ def run_competitor(comp: Competitor) -> None:
     try:
         result = app.invoke(state, config=run_config)
         with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if run:
-                run.brief = result.get("brief") or None
-                run.status = "done"
-                run.finished_at = datetime.utcnow()
+            completed = db.get(Run, run_id)
+            if completed:
+                completed.brief = result.get("brief") or None
+                completed.status = "done"
+                completed.finished_at = datetime.utcnow()
                 db.commit()
     except Exception:
         with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if run:
-                run.status = "failed"
-                run.finished_at = datetime.utcnow()
+            failed = db.get(Run, run_id)
+            if failed:
+                failed.status = "failed"
+                failed.finished_at = datetime.utcnow()
                 db.commit()
         raise
 
