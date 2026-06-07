@@ -1,6 +1,10 @@
 # Rival Radar
 
 [![CI](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml)
+[![Deploy](https://github.com/Akhilvallala1/rival-radar/actions/workflows/deploy.yml/badge.svg)](https://github.com/Akhilvallala1/rival-radar/actions/workflows/deploy.yml)
+
+**Live:** https://rival-radar-247626835860.us-central1.run.app  
+**API docs:** https://rival-radar-247626835860.us-central1.run.app/docs
 
 Automated competitive intelligence for B2B SaaS teams. Track competitor websites,
 pricing pages, blogs, and G2 reviews — get a Slack digest every week summarizing
