@@ -1,10 +1,11 @@
 import json
 import logging
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from rival_radar.database import SessionLocal, init_db
-from rival_radar.models import Competitor
+from rival_radar.models import Competitor, Run
 from rival_radar.state import MonitorState
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,31 @@ def run_competitor(comp: Competitor) -> None:
     )
     run_config = build_run_config(run_name=f"rival-radar:{comp.name}")
     logger.info("Running pipeline for competitor: %s", comp.name)
-    app.invoke(state, config=run_config)
+
+    with SessionLocal() as db:
+        run = Run(competitor_id=comp.id, status="running")
+        db.add(run)
+        db.commit()
+        run_id = run.id
+
+    try:
+        result = app.invoke(state, config=run_config)
+        with SessionLocal() as db:
+            run = db.get(Run, run_id)
+            if run:
+                run.brief = result.get("brief") or None
+                run.status = "done"
+                run.finished_at = datetime.utcnow()
+                db.commit()
+    except Exception:
+        with SessionLocal() as db:
+            run = db.get(Run, run_id)
+            if run:
+                run.status = "failed"
+                run.finished_at = datetime.utcnow()
+                db.commit()
+        raise
+
     logger.info("Pipeline complete for competitor: %s", comp.name)
 
 
