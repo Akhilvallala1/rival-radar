@@ -19,6 +19,7 @@ dependencies = [
     "slack-sdk>=3.27",
     "apscheduler>=3.10",
     "python-dotenv>=1.0",
+    "langfuse>=2.0",
 ]
 
 [project.optional-dependencies]

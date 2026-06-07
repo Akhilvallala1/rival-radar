@@ -14,6 +14,7 @@ scheduler = BackgroundScheduler()
 
 def run_competitor(comp: Competitor) -> None:
     from rival_radar.graph import app  # imported here to avoid circular import at module load
+    from rival_radar.tracing import build_run_config
 
     urls: list[str] = json.loads(comp.urls)
     state = MonitorState(
@@ -23,8 +24,9 @@ def run_competitor(comp: Competitor) -> None:
         brief="",
         run_id=0,
     )
+    run_config = build_run_config(run_name=f"rival-radar:{comp.name}")
     logger.info("Running pipeline for competitor: %s", comp.name)
-    app.invoke(state)
+    app.invoke(state, config=run_config)
     logger.info("Pipeline complete for competitor: %s", comp.name)
 
 

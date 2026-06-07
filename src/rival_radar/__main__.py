@@ -49,6 +49,7 @@ def cmd_scrape(args: argparse.Namespace) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     from rival_radar.graph import app  # imported here to avoid loading LLM on scrape-only calls
+    from rival_radar.tracing import build_run_config
 
     init_db()
     urls = [u.strip() for u in args.urls.split(",")]
@@ -68,7 +69,8 @@ def cmd_run(args: argparse.Namespace) -> None:
             brief="",
             run_id=0,
         )
-        result = app.invoke(state)
+        run_config = build_run_config(run_name=f"rival-radar:{args.name}")
+        result = app.invoke(state, config=run_config)
         db.commit()
 
     print("\n" + "=" * 60)
