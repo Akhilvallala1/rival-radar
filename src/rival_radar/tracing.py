@@ -13,17 +13,20 @@ def get_callback(run_name: str = "rival-radar"):
         return None
 
     try:
-        from langfuse.langchain import CallbackHandler  # langfuse >= 2.x
-    except ImportError:
-        from langfuse.callback import CallbackHandler  # type: ignore[no-redef]
+        from langfuse import Langfuse  # noqa: F401 — verify package present
 
-    return CallbackHandler(
-        public_key=pk,
-        secret_key=sk,
-        host=settings.langfuse_host,
-        trace_name=run_name,
-        tags=["rival-radar"],
-    )
+        try:
+            from langfuse.langchain import CallbackHandler
+        except ImportError:
+            from langfuse.callback import CallbackHandler  # type: ignore[no-redef]
+
+        return CallbackHandler(
+            public_key=pk,
+            secret_key=sk,
+            host=settings.langfuse_host,
+        )
+    except Exception:
+        return None
 
 
 def build_run_config(run_name: str = "rival-radar") -> RunnableConfig:
