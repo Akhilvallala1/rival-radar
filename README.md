@@ -1,5 +1,7 @@
 # Rival Radar
 
+[![CI](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml)
+
 Automated competitive intelligence for B2B SaaS teams. Track competitor websites,
 pricing pages, blogs, and G2 reviews — get a Slack digest every week summarizing
 what changed and what it signals.

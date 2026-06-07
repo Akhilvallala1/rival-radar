@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rival Radar — Competitive Intelligence on Autopilot</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f10;
+      color: #e8e8ed;
+      line-height: 1.6;
+    }
+
+    a { color: #6366f1; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Nav ── */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.25rem 2rem;
+      border-bottom: 1px solid #1e1e24;
+    }
+    .logo { font-size: 1.25rem; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+    .logo span { color: #6366f1; }
+    nav a { font-size: 0.9rem; color: #9ca3af; margin-left: 1.5rem; }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 760px;
+      margin: 6rem auto 4rem;
+      padding: 0 1.5rem;
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      background: #1e1e2e;
+      border: 1px solid #2d2d3a;
+      border-radius: 9999px;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.8rem;
+      color: #a5b4fc;
+      margin-bottom: 1.5rem;
+    }
+    h1 {
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      color: #fff;
+      margin-bottom: 1.25rem;
+    }
+    h1 em { color: #6366f1; font-style: normal; }
+    .sub {
+      font-size: 1.15rem;
+      color: #9ca3af;
+      max-width: 560px;
+      margin: 0 auto 2.5rem;
+    }
+    .cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      padding: 0.75rem 1.75rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary { background: #6366f1; color: #fff; }
+    .btn-primary:hover { background: #4f46e5; text-decoration: none; }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid #374151;
+      color: #d1d5db;
+    }
+    .btn-secondary:hover { border-color: #6366f1; text-decoration: none; }
+
+    /* ── How it works ── */
+    .section { max-width: 900px; margin: 0 auto 5rem; padding: 0 1.5rem; }
+    .section-label {
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #6366f1;
+      margin-bottom: 0.75rem;
+    }
+    h2 {
+      text-align: center;
+      font-size: 1.9rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 3rem;
+    }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; }
+    .step {
+      background: #16161e;
+      border: 1px solid #1e1e2a;
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    .step-num {
+      width: 36px; height: 36px;
+      background: #1e1e35;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; font-weight: 700; color: #818cf8;
+      margin-bottom: 0.9rem;
+    }
+    .step h3 { font-size: 1rem; font-weight: 600; color: #e8e8ed; margin-bottom: 0.4rem; }
+    .step p { font-size: 0.875rem; color: #6b7280; }
+
+    /* ── Pricing ── */
+    .plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; }
+    .plan {
+      background: #16161e;
+      border: 1px solid #1e1e2a;
+      border-radius: 12px;
+      padding: 2rem 1.5rem;
+    }
+    .plan.featured { border-color: #6366f1; position: relative; }
+    .plan-badge {
+      position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+      background: #6366f1; color: #fff;
+      font-size: 0.75rem; font-weight: 700;
+      padding: 0.2rem 0.8rem; border-radius: 9999px;
+    }
+    .plan-name { font-size: 0.9rem; font-weight: 600; color: #9ca3af; margin-bottom: 0.5rem; }
+    .plan-price { font-size: 2.25rem; font-weight: 800; color: #fff; }
+    .plan-price span { font-size: 1rem; font-weight: 400; color: #6b7280; }
+    .plan-desc { font-size: 0.85rem; color: #6b7280; margin: 0.75rem 0 1.25rem; }
+    .plan ul { list-style: none; }
+    .plan li { font-size: 0.875rem; color: #9ca3af; padding: 0.3rem 0; }
+    .plan li::before { content: "✓ "; color: #6366f1; font-weight: 700; }
+    .plan .btn { display: block; text-align: center; margin-top: 1.5rem; width: 100%; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 2.5rem 1.5rem;
+      border-top: 1px solid #1e1e24;
+      font-size: 0.85rem;
+      color: #4b5563;
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">Rival <span>Radar</span></div>
+  <div>
+    <a href="#pricing">Pricing</a>
+    <a href="https://github.com/Akhilvallala1/rival-radar">GitHub</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="badge">🚀 Now in early access</div>
+  <h1>Know what your <em>competitors</em> changed before your boss asks</h1>
+  <p class="sub">
+    Rival Radar monitors competitor pricing pages, blogs, and reviews weekly —
+    and delivers a Slack digest explaining what changed and why it matters.
+  </p>
+  <div class="cta-group">
+    <a href="#pricing" class="btn btn-primary">Start free trial</a>
+    <a href="https://github.com/Akhilvallala1/rival-radar" class="btn btn-secondary">View on GitHub</a>
+  </div>
+</div>
+
+<div class="section">
+  <p class="section-label">How it works</p>
+  <h2>Set up in 2 minutes. Results every Monday.</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Add competitors</h3>
+      <p>Paste competitor URLs — homepage, pricing page, blog, G2 profile.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>We monitor them</h3>
+      <p>Our AI agents scrape each page weekly and detect meaningful changes.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>You get the brief</h3>
+      <p>Every Monday, a Slack digest lands with what changed and what it signals.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <h3>Stay ahead</h3>
+      <p>React to pricing moves, feature launches, and review trends before they hit you.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" id="pricing">
+  <p class="section-label">Pricing</p>
+  <h2>Simple, transparent pricing</h2>
+  <div class="plans">
+    <div class="plan">
+      <div class="plan-name">Starter</div>
+      <div class="plan-price">$0 <span>/mo</span></div>
+      <div class="plan-desc">For solo founders exploring the product.</div>
+      <ul>
+        <li>2 competitors</li>
+        <li>Weekly Slack digest</li>
+        <li>Homepage + pricing page</li>
+      </ul>
+      <a href="#" class="btn btn-secondary">Get started free</a>
+    </div>
+    <div class="plan featured">
+      <div class="plan-badge">Most popular</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">$99 <span>/mo</span></div>
+      <div class="plan-desc">For product teams that need full coverage.</div>
+      <ul>
+        <li>10 competitors</li>
+        <li>Daily monitoring</li>
+        <li>All sources incl. G2 &amp; blog RSS</li>
+        <li>Manual run trigger via API</li>
+      </ul>
+      <a href="#" class="btn btn-primary">Start Pro trial</a>
+    </div>
+    <div class="plan">
+      <div class="plan-name">Team</div>
+      <div class="plan-price">$299 <span>/mo</span></div>
+      <div class="plan-desc">For competitive intelligence at scale.</div>
+      <ul>
+        <li>Unlimited competitors</li>
+        <li>Hourly monitoring</li>
+        <li>REST API access</li>
+        <li>Langfuse trace dashboard</li>
+      </ul>
+      <a href="#" class="btn btn-secondary">Contact us</a>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Built with LangGraph · Claude · Langfuse · FastAPI · Docker
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Akhilvallala1/rival-radar">Open source on GitHub</a>
+</footer>
+
+</body>
+</html>
