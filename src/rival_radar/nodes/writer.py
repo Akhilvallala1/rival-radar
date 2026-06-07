@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from langchain_anthropic import ChatAnthropic
 
 from rival_radar.state import MonitorState
@@ -27,7 +29,9 @@ def writer(state: MonitorState) -> dict:
             )
         }
 
+    today = datetime.utcnow().strftime("%B %d, %Y")
     user_msg = (
+        f"Today's date is {today}. "
         "Write this week's competitive intelligence Slack digest based on these findings:\n\n"
         + "\n\n---\n\n".join(analyses)
     )
