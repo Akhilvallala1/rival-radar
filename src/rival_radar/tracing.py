@@ -6,15 +6,20 @@ from rival_radar.config import settings
 
 
 def get_callback(run_name: str = "rival-radar"):
-    """Return a Langfuse CallbackHandler if keys are configured, else None."""
-    if not settings.langfuse_public_key or not settings.langfuse_secret_key:
+    """Return a Langfuse CallbackHandler if real keys are configured, else None."""
+    pk = settings.langfuse_public_key or ""
+    sk = settings.langfuse_secret_key or ""
+    if not pk or not sk or pk.startswith("pk-placeholder") or sk.startswith("sk-placeholder"):
         return None
 
-    from langfuse.callback import CallbackHandler  # lazy: only needed when keys are present
+    try:
+        from langfuse.langchain import CallbackHandler  # langfuse >= 2.x
+    except ImportError:
+        from langfuse.callback import CallbackHandler  # type: ignore[no-redef]
 
     return CallbackHandler(
-        public_key=settings.langfuse_public_key,
-        secret_key=settings.langfuse_secret_key,
+        public_key=pk,
+        secret_key=sk,
         host=settings.langfuse_host,
         trace_name=run_name,
         tags=["rival-radar"],
