@@ -29,7 +29,9 @@ from rival_radar.scheduler import run_competitor, start_scheduler, stop_schedule
 def _client_ip(request: Request) -> str:
     forwarded = request.headers.get("X-Forwarded-For", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        # Cloud Run's LB appends the real client IP as the rightmost value;
+        # leftmost values are attacker-controlled and must not be trusted.
+        return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -235,6 +237,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 <script>
 // ── Utils ─────────────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function toast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -268,12 +275,12 @@ async function loadCompetitors() {
   el.innerHTML = data.map(c => `
     <div class="comp-card">
       <div class="comp-header">
-        <span class="comp-name">${c.name}</span>
-        <span class="comp-cadence">${c.cadence}</span>
+        <span class="comp-name">${escapeHtml(c.name)}</span>
+        <span class="comp-cadence">${escapeHtml(c.cadence)}</span>
       </div>
-      <div class="comp-urls">${c.urls.join('<br>')}</div>
+      <div class="comp-urls">${c.urls.map(escapeHtml).join('<br>')}</div>
       <div class="comp-actions">
-        <button class="btn btn-sm btn-run" onclick="runNow(${c.id}, '${c.name}')">&#9654; Run Now</button>
+        <button class="btn btn-sm btn-run" data-id="${c.id}" data-name="${escapeHtml(c.name)}" onclick="runNow(this.dataset.id, this.dataset.name)">&#9654; Run Now</button>
         <button class="btn btn-sm btn-del" onclick="deleteComp(${c.id})">Delete</button>
       </div>
     </div>`).join('');
@@ -288,14 +295,14 @@ async function loadRuns() {
   el.innerHTML = data.map(r => `
     <div class="run-card">
       <div class="run-meta">
-        <span class="run-name">${r.competitor_name}</span>
+        <span class="run-name">${escapeHtml(r.competitor_name)}</span>
         <div style="display:flex;gap:0.5rem;align-items:center">
-          <span class="${r.status === 'done' ? 'badge-ok' : 'badge-run'}">${r.status}</span>
+          <span class="${r.status === 'done' ? 'badge-ok' : 'badge-run'}">${escapeHtml(r.status)}</span>
           <span class="run-time">${timeAgo(r.started_at)}</span>
         </div>
       </div>
       ${r.brief
-        ? `<div class="brief">${r.brief}</div>`
+        ? `<div class="brief">${escapeHtml(r.brief)}</div>`
         : `<div class="no-brief">No brief yet — run in progress or no changes detected.</div>`}
     </div>`).join('');
 }
@@ -396,7 +403,7 @@ def do_login(request: Request, password: str = Form(...)) -> RedirectResponse:
     if not _valid_password(password):
         return RedirectResponse(url="/login?error=1", status_code=303)
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("rr_session", password, httponly=True, samesite="lax", max_age=_SESSION_TTL)
+    response.set_cookie("rr_session", password, httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
     return response
 
 
