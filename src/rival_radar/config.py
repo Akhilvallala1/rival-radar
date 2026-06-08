@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
     dashboard_password: str = "changeme"
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    secret_key: str = "dev-secret-key-change-in-production"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

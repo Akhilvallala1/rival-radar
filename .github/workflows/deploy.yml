@@ -55,7 +55,10 @@ jobs:
             --set-env-vars "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}" \
             --set-env-vars "LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
             --set-env-vars "LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}" \
-            --set-env-vars "DASHBOARD_PASSWORD=${{ secrets.DASHBOARD_PASSWORD }}"
+            --set-env-vars "DASHBOARD_PASSWORD=${{ secrets.DASHBOARD_PASSWORD }}" \
+            --set-env-vars "SECRET_KEY=${{ secrets.SECRET_KEY }}" \
+            --set-env-vars "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+            --set-env-vars "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}"
 
       - name: Show service URL
         run: |

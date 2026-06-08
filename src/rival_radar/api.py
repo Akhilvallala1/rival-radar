@@ -2,6 +2,7 @@ import json
 import secrets
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import (
     BackgroundTasks,
     Cookie,
@@ -14,6 +15,8 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
+from itsdangerous import BadData, URLSafeTimedSerializer
+from passlib.context import CryptContext
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -21,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from rival_radar.config import settings
 from rival_radar.database import get_session, init_db
-from rival_radar.models import Competitor, Run
+from rival_radar.models import Competitor, Run, User
 from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
 
 
@@ -38,11 +41,23 @@ def _client_ip(request: Request) -> str:
 limiter = Limiter(key_func=_client_ip)
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+_SESSION_TTL = 60 * 60 * 24 * 7
 
-def _valid_password(pw: str) -> bool:
-    return bool(pw) and secrets.compare_digest(pw, settings.dashboard_password)
+
+def _make_session_token(user_id: int) -> str:
+    return URLSafeTimedSerializer(settings.secret_key).dumps(user_id, salt="rr-session")
+
+
+def _verify_session_token(token: str) -> int | None:
+    try:
+        return int(URLSafeTimedSerializer(settings.secret_key).loads(
+            token, salt="rr-session", max_age=_SESSION_TTL
+        ))
+    except (BadData, ValueError, TypeError):
+        return None
 
 
 def require_auth(
@@ -50,9 +65,18 @@ def require_auth(
     api_key: str = Security(_api_key_header),
     rr_session: str = Cookie(default=""),
 ) -> None:
-    if _valid_password(api_key) or _valid_password(rr_session):
+    if bool(api_key) and secrets.compare_digest(api_key, settings.dashboard_password):
+        return
+    if rr_session and _verify_session_token(rr_session) is not None:
         return
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+_GOOGLE_BTN = """
+  <div class="divider"><span>or</span></div>
+  <a href="/auth/google" class="btn-google">
+    <svg viewBox="0 0 24 24" width="18" height="18" style="flex-shrink:0"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+    Continue with Google
+  </a>""" if settings.google_client_id else ""
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -62,26 +86,23 @@ LOGIN_HTML = """<!DOCTYPE html>
   <title>Rival Radar — Sign in</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-           background: #0f0f10; color: #e8e8ed; min-height: 100vh;
-           display: flex; align-items: center; justify-content: center; }
-    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px;
-            padding: 2.75rem 2.25rem; width: 360px; }
-    .logo { font-size: 1.6rem; font-weight: 800; color: #fff; text-align: center;
-            margin-bottom: 0.35rem; letter-spacing: -0.5px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f10; color: #e8e8ed; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px; padding: 2.75rem 2.25rem; width: 380px; }
+    .logo { font-size: 1.6rem; font-weight: 800; color: #fff; text-align: center; margin-bottom: 0.35rem; letter-spacing: -0.5px; }
     .logo span { color: #6366f1; }
     .sub { text-align: center; font-size: 0.875rem; color: #6b7280; margin-bottom: 2rem; }
     label { display: block; font-size: 0.78rem; color: #9ca3af; margin-bottom: 0.3rem; }
-    input[type=password] { width: 100%; background: #0f0f10; border: 1px solid #2d2d3a;
-                           border-radius: 8px; padding: 0.6rem 0.85rem; color: #e8e8ed;
-                           font-size: 0.9rem; outline: none; margin-bottom: 1.25rem; }
-    input[type=password]:focus { border-color: #6366f1; }
-    button { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px;
-             padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-    button:hover { background: #4f46e5; }
-    .err { color: #ef4444; font-size: 0.8rem; margin-top: 0.85rem; text-align: center;
-           min-height: 1.2rem; }
-    .footer { text-align: center; font-size: 0.75rem; color: #374151; margin-top: 1.75rem; }
+    input { width: 100%; background: #0f0f10; border: 1px solid #2d2d3a; border-radius: 8px; padding: 0.6rem 0.85rem; color: #e8e8ed; font-size: 0.9rem; outline: none; margin-bottom: 1rem; }
+    input:focus { border-color: #6366f1; }
+    button[type=submit] { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 0.1rem; }
+    button[type=submit]:hover { background: #4f46e5; }
+    .btn-google { display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; background: #fff; color: #374151; border: 1px solid #d1d5db; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.875rem; font-weight: 500; text-decoration: none; }
+    .btn-google:hover { background: #f9fafb; }
+    .divider { display: flex; align-items: center; gap: 0.75rem; margin: 1.1rem 0; color: #4b5563; font-size: 0.78rem; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #2d2d3a; }
+    .err { color: #ef4444; font-size: 0.8rem; margin-top: 0.85rem; text-align: center; min-height: 1.2rem; }
+    .footer { text-align: center; font-size: 0.78rem; color: #6b7280; margin-top: 1.5rem; }
+    .footer a { color: #6366f1; text-decoration: none; }
   </style>
 </head>
 <body>
@@ -89,20 +110,76 @@ LOGIN_HTML = """<!DOCTYPE html>
     <div class="logo">Rival <span>Radar</span></div>
     <div class="sub">Competitive intelligence for B2B teams</div>
     <form method="post" action="/login">
-      <label for="password">Dashboard password</label>
-      <input id="password" name="password" type="password" placeholder="Enter password" autofocus required />
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" placeholder="you@company.com" autofocus required />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="••••••••" required />
       <button type="submit">Sign in</button>
     </form>
+    [GOOGLE_BTN]
     {error}
-    <div class="footer">Rival Radar &copy; 2026</div>
+    <p class="footer">Don't have an account? <a href="/signup">Sign up</a></p>
+    <p class="footer" style="margin-top:0.4rem;color:#374151">Rival Radar &copy; 2026</p>
   </div>
 </body>
-</html>"""
+</html>""".replace("[GOOGLE_BTN]", _GOOGLE_BTN)
 
 _LOGIN_HTML_OK = LOGIN_HTML.replace("{error}", '<div class="err"></div>')
-_LOGIN_HTML_ERR = LOGIN_HTML.replace("{error}", '<div class="err">Incorrect password — try again.</div>')
+_LOGIN_HTML_ERR = LOGIN_HTML.replace("{error}", '<div class="err">Incorrect email or password — try again.</div>')
+_LOGIN_HTML_ERR_OAUTH = LOGIN_HTML.replace("{error}", '<div class="err">Google sign-in failed — please try again.</div>')
 
-_SESSION_TTL = 60 * 60 * 24 * 7
+SIGNUP_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Rival Radar — Create account</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f10; color: #e8e8ed; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px; padding: 2.75rem 2.25rem; width: 380px; }
+    .logo { font-size: 1.6rem; font-weight: 800; color: #fff; text-align: center; margin-bottom: 0.35rem; letter-spacing: -0.5px; }
+    .logo span { color: #6366f1; }
+    .sub { text-align: center; font-size: 0.875rem; color: #6b7280; margin-bottom: 2rem; }
+    label { display: block; font-size: 0.78rem; color: #9ca3af; margin-bottom: 0.3rem; }
+    input { width: 100%; background: #0f0f10; border: 1px solid #2d2d3a; border-radius: 8px; padding: 0.6rem 0.85rem; color: #e8e8ed; font-size: 0.9rem; outline: none; margin-bottom: 1rem; }
+    input:focus { border-color: #6366f1; }
+    button[type=submit] { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 0.1rem; }
+    button[type=submit]:hover { background: #4f46e5; }
+    .btn-google { display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; background: #fff; color: #374151; border: 1px solid #d1d5db; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.875rem; font-weight: 500; text-decoration: none; }
+    .btn-google:hover { background: #f9fafb; }
+    .divider { display: flex; align-items: center; gap: 0.75rem; margin: 1.1rem 0; color: #4b5563; font-size: 0.78rem; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #2d2d3a; }
+    .hint { font-size: 0.75rem; color: #4b5563; }
+    .err { color: #ef4444; font-size: 0.8rem; margin-top: 0.85rem; text-align: center; min-height: 1.2rem; }
+    .footer { text-align: center; font-size: 0.78rem; color: #6b7280; margin-top: 1.5rem; }
+    .footer a { color: #6366f1; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Rival <span>Radar</span></div>
+    <div class="sub">Create your account</div>
+    <form method="post" action="/signup">
+      <label for="name">Name <span class="hint">(optional)</span></label>
+      <input id="name" name="name" type="text" placeholder="Your name" />
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" placeholder="you@company.com" required />
+      <label for="password">Password <span class="hint">(min 8 chars)</span></label>
+      <input id="password" name="password" type="password" placeholder="••••••••" minlength="8" required />
+      <button type="submit">Create account</button>
+    </form>
+    [GOOGLE_BTN]
+    {error}
+    <p class="footer">Already have an account? <a href="/login">Sign in</a></p>
+    <p class="footer" style="margin-top:0.4rem;color:#374151">Rival Radar &copy; 2026</p>
+  </div>
+</body>
+</html>""".replace("[GOOGLE_BTN]", _GOOGLE_BTN)
+
+_SIGNUP_HTML_OK = SIGNUP_HTML.replace("{error}", '<div class="err"></div>')
+_SIGNUP_HTML_SHORT = SIGNUP_HTML.replace("{error}", '<div class="err">Password must be at least 8 characters.</div>')
+_SIGNUP_HTML_EXISTS = SIGNUP_HTML.replace("{error}", '<div class="err">An account with this email already exists.</div>')
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -394,17 +471,137 @@ class RunOut(BaseModel):
 
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
 def login_page(error: int = 0) -> HTMLResponse:
+    if error == 2:
+        return HTMLResponse(_LOGIN_HTML_ERR_OAUTH)
     return HTMLResponse(_LOGIN_HTML_ERR if error else _LOGIN_HTML_OK)
 
 
 @app.post("/login", include_in_schema=False)
 @limiter.limit("10/minute")
-def do_login(request: Request, password: str = Form(...)) -> RedirectResponse:
-    if not _valid_password(password):
+def do_login(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_session),
+) -> RedirectResponse:
+    user = db.query(User).filter(User.email == email.lower().strip()).first()
+    if not user or not user.password_hash or not _pwd_context.verify(password, user.password_hash):
         return RedirectResponse(url="/login?error=1", status_code=303)
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("rr_session", password, httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
+    response.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
     return response
+
+
+@app.get("/signup", response_class=HTMLResponse, include_in_schema=False)
+def signup_page(error: int = 0) -> HTMLResponse:
+    if error == 1:
+        return HTMLResponse(_SIGNUP_HTML_SHORT)
+    if error == 2:
+        return HTMLResponse(_SIGNUP_HTML_EXISTS)
+    return HTMLResponse(_SIGNUP_HTML_OK)
+
+
+@app.post("/signup", include_in_schema=False)
+@limiter.limit("5/hour")
+def do_signup(
+    request: Request,
+    name: str = Form(default=""),
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_session),
+) -> RedirectResponse:
+    email = email.lower().strip()
+    if len(password) < 8:
+        return RedirectResponse(url="/signup?error=1", status_code=303)
+    if db.query(User).filter(User.email == email).first():
+        return RedirectResponse(url="/signup?error=2", status_code=303)
+    user = User(email=email, name=name.strip() or None, password_hash=_pwd_context.hash(password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
+    return response
+
+
+@app.get("/auth/google", include_in_schema=False)
+async def google_login(request: Request) -> RedirectResponse:
+    if not settings.google_client_id:
+        return RedirectResponse(url="/login", status_code=302)
+    state = secrets.token_urlsafe(32)
+    redirect_uri = str(request.url_for("google_callback"))
+    url = (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+        f"?client_id={settings.google_client_id}"
+        f"&redirect_uri={redirect_uri}"
+        "&response_type=code"
+        "&scope=openid%20email%20profile"
+        f"&state={state}"
+        "&access_type=offline"
+    )
+    resp = RedirectResponse(url=url)
+    resp.set_cookie("oauth_state", state, httponly=True, samesite="lax", secure=True, max_age=300)
+    return resp
+
+
+@app.get("/auth/google/callback", name="google_callback", include_in_schema=False)
+async def google_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    db: Session = Depends(get_session),
+) -> RedirectResponse:
+    stored_state = request.cookies.get("oauth_state", "")
+    if not code or not stored_state or not secrets.compare_digest(stored_state, state):
+        return RedirectResponse(url="/login?error=2", status_code=302)
+
+    redirect_uri = str(request.url_for("google_callback"))
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+        )
+        if token_resp.status_code != 200:
+            return RedirectResponse(url="/login?error=2", status_code=302)
+        access_token = token_resp.json().get("access_token", "")
+        if not access_token:
+            return RedirectResponse(url="/login?error=2", status_code=302)
+        userinfo_resp = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+    if userinfo_resp.status_code != 200:
+        return RedirectResponse(url="/login?error=2", status_code=302)
+
+    info = userinfo_resp.json()
+    google_id = info.get("id", "")
+    email = info.get("email", "").lower().strip()
+    name = info.get("name", "")
+    if not google_id or not email:
+        return RedirectResponse(url="/login?error=2", status_code=302)
+
+    user = db.query(User).filter(User.google_id == google_id).first()
+    if not user:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            user.google_id = google_id
+        else:
+            user = User(email=email, google_id=google_id, name=name or None)
+            db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    resp = RedirectResponse(url="/", status_code=302)
+    resp.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
+    resp.delete_cookie("oauth_state")
+    return resp
 
 
 @app.get("/logout", include_in_schema=False)
@@ -416,7 +613,7 @@ def logout() -> RedirectResponse:
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False, response_model=None)
 def dashboard(rr_session: str = Cookie(default="")) -> HTMLResponse | RedirectResponse:
-    if not _valid_password(rr_session):
+    if _verify_session_token(rr_session) is None:
         return RedirectResponse(url="/login", status_code=302)
     return HTMLResponse(DASHBOARD_HTML, headers={"Cache-Control": "no-store"})
 

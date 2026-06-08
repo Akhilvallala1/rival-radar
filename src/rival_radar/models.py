@@ -8,6 +8,17 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    google_id: Mapped[str | None] = mapped_column(String(255), unique=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Competitor(Base):
     __tablename__ = "competitors"
 
