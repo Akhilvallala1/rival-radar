@@ -1,13 +1,30 @@
 import json
+import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Security
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
+from rival_radar.config import settings
 from rival_radar.database import get_session, init_db
 from rival_radar.models import Competitor, Run
+
+# ── Rate limiter ───────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+
+# ── Auth ───────────────────────────────────────────────────────────────────────
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_auth(api_key: str = Security(_api_key_header)) -> None:
+    if not secrets.compare_digest(api_key or "", settings.dashboard_password):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
 
 DASHBOARD_HTML = """<!DOCTYPE html>
@@ -84,9 +101,30 @@ DASHBOARD_HTML = """<!DOCTYPE html>
              border-radius: 8px; font-size: 0.85rem; opacity: 0; transition: opacity 0.3s;
              pointer-events: none; }
     .toast.show { opacity: 1; }
+
+    /* ── Login overlay ── */
+    .login-overlay { position: fixed; inset: 0; background: #0f0f10;
+                     display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .login-box { background: #16161e; border: 1px solid #1e1e2a; border-radius: 12px;
+                 padding: 2.5rem 2rem; width: 340px; text-align: center; }
+    .login-box h2 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; }
+    .login-box p { font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem; }
+    .login-box input { margin-bottom: 1rem; }
+    .login-error { color: #ef4444; font-size: 0.8rem; margin-top: 0.5rem; min-height: 1.2rem; }
   </style>
 </head>
 <body>
+
+<!-- Login overlay -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <h2>Rival <span style="color:#6366f1">Radar</span></h2>
+    <p>Enter your dashboard password to continue</p>
+    <input id="login-pw" type="password" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()" />
+    <button class="btn btn-primary" onclick="doLogin()">Sign in</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
 
 <nav>
   <div class="logo">Rival <span>Radar</span></div>
@@ -94,6 +132,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <a href="/docs">API Docs</a>
     <a href="/health">Health</a>
     <a href="https://github.com/Akhilvallala1/rival-radar">GitHub</a>
+    <a href="#" onclick="logout()" style="color:#ef4444;margin-left:1.5rem">Sign out</a>
   </div>
 </nav>
 
@@ -142,6 +181,32 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <script>
 const BASE = '';
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function getKey() { return sessionStorage.getItem('rr_key') || ''; }
+
+function authHeaders(extra) {
+  return Object.assign({'X-API-Key': getKey()}, extra || {});
+}
+
+async function doLogin() {
+  const pw = document.getElementById('login-pw').value;
+  const res = await fetch(BASE + '/competitors', {headers: {'X-API-Key': pw}});
+  if (res.status === 401) {
+    document.getElementById('login-error').textContent = 'Incorrect password.';
+    return;
+  }
+  sessionStorage.setItem('rr_key', pw);
+  document.getElementById('login-overlay').style.display = 'none';
+  loadCompetitors();
+  loadRuns();
+}
+
+function logout() {
+  sessionStorage.removeItem('rr_key');
+  location.reload();
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
 function toast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -158,8 +223,10 @@ function timeAgo(iso) {
   return Math.floor(diff/86400) + 'd ago';
 }
 
+// ── Data ──────────────────────────────────────────────────────────────────────
 async function loadCompetitors() {
-  const res = await fetch(BASE + '/competitors');
+  const res = await fetch(BASE + '/competitors', {headers: authHeaders()});
+  if (res.status === 401) { showLogin(); return; }
   const data = await res.json();
   const el = document.getElementById('comp-list');
   if (!data.length) { el.innerHTML = '<div class="empty">No competitors yet.</div>'; return; }
@@ -178,7 +245,8 @@ async function loadCompetitors() {
 }
 
 async function loadRuns() {
-  const res = await fetch(BASE + '/runs');
+  const res = await fetch(BASE + '/runs', {headers: authHeaders()});
+  if (res.status === 401) { showLogin(); return; }
   const data = await res.json();
   const el = document.getElementById('run-list');
   if (!data.length) { el.innerHTML = '<div class="empty">No runs yet — add a competitor and click Run Now.</div>'; return; }
@@ -204,7 +272,7 @@ async function addCompetitor() {
   if (!name || !urls.length) { toast('Name and at least one URL required'); return; }
   await fetch(BASE + '/competitors', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: authHeaders({'Content-Type': 'application/json'}),
     body: JSON.stringify({name, urls, cadence})
   });
   document.getElementById('inp-name').value = '';
@@ -214,20 +282,29 @@ async function addCompetitor() {
 }
 
 async function deleteComp(id) {
-  await fetch(BASE + '/competitors/' + id, {method: 'DELETE'});
+  await fetch(BASE + '/competitors/' + id, {method: 'DELETE', headers: authHeaders()});
   toast('Deleted');
   loadCompetitors();
 }
 
 async function runNow(id, name) {
-  await fetch(BASE + '/competitors/' + id + '/run', {method: 'POST'});
+  const res = await fetch(BASE + '/competitors/' + id + '/run', {method: 'POST', headers: authHeaders()});
+  if (res.status === 429) { toast('Rate limit hit — max 5 runs/hour'); return; }
   toast('Running ' + name + '...');
   setTimeout(loadRuns, 2000);
 }
 
-loadCompetitors();
-loadRuns();
-setInterval(() => { loadCompetitors(); loadRuns(); }, 15000);
+function showLogin() {
+  document.getElementById('login-overlay').style.display = 'flex';
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+if (getKey()) {
+  document.getElementById('login-overlay').style.display = 'none';
+  loadCompetitors();
+  loadRuns();
+  setInterval(() => { loadCompetitors(); loadRuns(); }, 15000);
+}
 </script>
 </body>
 </html>"""
@@ -242,6 +319,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Rival Radar", version="0.1.0", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -285,8 +364,12 @@ def health() -> dict:
 
 
 @app.post("/competitors", response_model=CompetitorOut, status_code=201)
+@limiter.limit("20/hour")
 def create_competitor(
-    payload: CompetitorCreate, db: Session = Depends(get_session)
+    request: Request,
+    payload: CompetitorCreate,
+    db: Session = Depends(get_session),
+    _: None = Depends(require_auth),
 ) -> CompetitorOut:
     comp = Competitor(
         name=payload.name,
@@ -301,7 +384,12 @@ def create_competitor(
 
 
 @app.get("/competitors", response_model=list[CompetitorOut])
-def list_competitors(db: Session = Depends(get_session)) -> list[CompetitorOut]:
+@limiter.limit("60/minute")
+def list_competitors(
+    request: Request,
+    db: Session = Depends(get_session),
+    _: None = Depends(require_auth),
+) -> list[CompetitorOut]:
     comps = db.query(Competitor).all()
     return [
         CompetitorOut(id=c.id, name=c.name, urls=json.loads(c.urls), cadence=c.cadence)
@@ -310,7 +398,13 @@ def list_competitors(db: Session = Depends(get_session)) -> list[CompetitorOut]:
 
 
 @app.delete("/competitors/{competitor_id}", status_code=204)
-def delete_competitor(competitor_id: int, db: Session = Depends(get_session)) -> None:
+@limiter.limit("20/hour")
+def delete_competitor(
+    request: Request,
+    competitor_id: int,
+    db: Session = Depends(get_session),
+    _: None = Depends(require_auth),
+) -> None:
     comp = db.query(Competitor).filter_by(id=competitor_id).first()
     if not comp:
         raise HTTPException(status_code=404, detail="Competitor not found")
@@ -319,10 +413,13 @@ def delete_competitor(competitor_id: int, db: Session = Depends(get_session)) ->
 
 
 @app.post("/competitors/{competitor_id}/run")
+@limiter.limit("5/hour")
 def trigger_run(
+    request: Request,
     competitor_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_session),
+    _: None = Depends(require_auth),
 ) -> dict:
     comp = db.query(Competitor).filter_by(id=competitor_id).first()
     if not comp:
@@ -332,7 +429,13 @@ def trigger_run(
 
 
 @app.get("/runs", response_model=list[RunOut])
-def list_runs(limit: int = 20, db: Session = Depends(get_session)) -> list[RunOut]:
+@limiter.limit("60/minute")
+def list_runs(
+    request: Request,
+    limit: int = 20,
+    db: Session = Depends(get_session),
+    _: None = Depends(require_auth),
+) -> list[RunOut]:
     runs = (
         db.query(Run)
         .order_by(Run.started_at.desc())

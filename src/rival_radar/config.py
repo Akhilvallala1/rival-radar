@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
+    dashboard_password: str = "changeme"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
