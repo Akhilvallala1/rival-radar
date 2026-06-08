@@ -90,6 +90,11 @@ LOGIN_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+_LOGIN_HTML_OK = LOGIN_HTML.replace("{error}", '<div class="err"></div>')
+_LOGIN_HTML_ERR = LOGIN_HTML.replace("{error}", '<div class="err">Incorrect password — try again.</div>')
+
+_SESSION_TTL = 60 * 60 * 24 * 7
+
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -239,6 +244,8 @@ function timeAgo(iso) {
   return Math.floor(diff/86400) + 'd ago';
 }
 
+const api = (url, opts = {}) => fetch(url, {credentials: 'same-origin', ...opts});
+
 function handleUnauth(res) {
   if (res.status === 401) { window.location.href = '/login'; return true; }
   return false;
@@ -246,7 +253,7 @@ function handleUnauth(res) {
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 async function loadCompetitors() {
-  const res = await fetch('/competitors', {credentials: 'same-origin'});
+  const res = await api('/competitors');
   if (handleUnauth(res)) return;
   const data = await res.json();
   const el = document.getElementById('comp-list');
@@ -266,7 +273,7 @@ async function loadCompetitors() {
 }
 
 async function loadRuns() {
-  const res = await fetch('/runs', {credentials: 'same-origin'});
+  const res = await api('/runs');
   if (handleUnauth(res)) return;
   const data = await res.json();
   const el = document.getElementById('run-list');
@@ -291,9 +298,8 @@ async function addCompetitor() {
   const urls = document.getElementById('inp-urls').value.trim().split(/\\s+/).filter(Boolean);
   const cadence = document.getElementById('inp-cadence').value;
   if (!name || !urls.length) { toast('Name and at least one URL required'); return; }
-  await fetch('/competitors', {
+  await api('/competitors', {
     method: 'POST',
-    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name, urls, cadence})
   });
@@ -304,13 +310,13 @@ async function addCompetitor() {
 }
 
 async function deleteComp(id) {
-  await fetch('/competitors/' + id, {method: 'DELETE', credentials: 'same-origin'});
+  await api('/competitors/' + id, {method: 'DELETE'});
   toast('Deleted');
   loadCompetitors();
 }
 
 async function runNow(id, name) {
-  const res = await fetch('/competitors/' + id + '/run', {method: 'POST', credentials: 'same-origin'});
+  const res = await api('/competitors/' + id + '/run', {method: 'POST'});
   if (res.status === 429) { toast('Rate limit hit — max 5 runs/hour'); return; }
   toast('Running ' + name + '...');
   setTimeout(loadRuns, 2000);
@@ -370,8 +376,7 @@ class RunOut(BaseModel):
 
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
 def login_page(error: int = 0) -> HTMLResponse:
-    err_html = '<div class="err">Incorrect password — try again.</div>' if error else '<div class="err"></div>'
-    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
+    return HTMLResponse(_LOGIN_HTML_ERR if error else _LOGIN_HTML_OK)
 
 
 @app.post("/login", include_in_schema=False)
@@ -379,7 +384,7 @@ async def do_login(password: str = Form(...)) -> RedirectResponse:
     if not _valid_password(password):
         return RedirectResponse(url="/login?error=1", status_code=303)
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("rr_session", password, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
+    response.set_cookie("rr_session", password, httponly=True, samesite="lax", max_age=_SESSION_TTL)
     return response
 
 
