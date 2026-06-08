@@ -2,6 +2,7 @@ import json
 import secrets
 from contextlib import asynccontextmanager
 
+import bcrypt
 import httpx
 from fastapi import (
     BackgroundTasks,
@@ -16,7 +17,6 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 from itsdangerous import BadData, URLSafeTimedSerializer
-from passlib.context import CryptContext
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -41,7 +41,14 @@ def _client_ip(request: Request) -> str:
 limiter = Limiter(key_func=_client_ip)
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 _SESSION_TTL = 60 * 60 * 24 * 7
@@ -485,7 +492,7 @@ def do_login(
     db: Session = Depends(get_session),
 ) -> RedirectResponse:
     user = db.query(User).filter(User.email == email.lower().strip()).first()
-    if not user or not user.password_hash or not _pwd_context.verify(password, user.password_hash):
+    if not user or not user.password_hash or not _verify_password(password, user.password_hash):
         return RedirectResponse(url="/login?error=1", status_code=303)
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
@@ -515,7 +522,7 @@ def do_signup(
         return RedirectResponse(url="/signup?error=1", status_code=303)
     if db.query(User).filter(User.email == email).first():
         return RedirectResponse(url="/signup?error=2", status_code=303)
-    user = User(email=email, name=name.strip() or None, password_hash=_pwd_context.hash(password))
+    user = User(email=email, name=name.strip() or None, password_hash=_hash_password(password))
     db.add(user)
     db.commit()
     db.refresh(user)
