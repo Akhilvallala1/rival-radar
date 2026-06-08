@@ -17,7 +17,6 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from rival_radar.config import settings
@@ -25,8 +24,16 @@ from rival_radar.database import get_session, init_db
 from rival_radar.models import Competitor, Run
 from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
 
+
 # ── Rate limiter ───────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+limiter = Limiter(key_func=_client_ip)
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -298,11 +305,13 @@ async function addCompetitor() {
   const urls = document.getElementById('inp-urls').value.trim().split(/\\s+/).filter(Boolean);
   const cadence = document.getElementById('inp-cadence').value;
   if (!name || !urls.length) { toast('Name and at least one URL required'); return; }
-  await api('/competitors', {
+  const res = await api('/competitors', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name, urls, cadence})
   });
+  if (handleUnauth(res)) return;
+  if (!res.ok) { toast('Failed to add competitor'); return; }
   document.getElementById('inp-name').value = '';
   document.getElementById('inp-urls').value = '';
   toast('Competitor added!');
@@ -310,7 +319,9 @@ async function addCompetitor() {
 }
 
 async function deleteComp(id) {
-  await api('/competitors/' + id, {method: 'DELETE'});
+  const res = await api('/competitors/' + id, {method: 'DELETE'});
+  if (handleUnauth(res)) return;
+  if (!res.ok) { toast('Failed to delete'); return; }
   toast('Deleted');
   loadCompetitors();
 }
@@ -380,7 +391,8 @@ def login_page(error: int = 0) -> HTMLResponse:
 
 
 @app.post("/login", include_in_schema=False)
-async def do_login(password: str = Form(...)) -> RedirectResponse:
+@limiter.limit("10/minute")
+def do_login(request: Request, password: str = Form(...)) -> RedirectResponse:
     if not _valid_password(password):
         return RedirectResponse(url="/login?error=1", status_code=303)
     response = RedirectResponse(url="/", status_code=303)
@@ -399,7 +411,7 @@ def logout() -> RedirectResponse:
 def dashboard(rr_session: str = Cookie(default="")) -> HTMLResponse | RedirectResponse:
     if not _valid_password(rr_session):
         return RedirectResponse(url="/login", status_code=302)
-    return HTMLResponse(DASHBOARD_HTML)
+    return HTMLResponse(DASHBOARD_HTML, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")
