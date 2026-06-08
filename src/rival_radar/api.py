@@ -2,7 +2,16 @@ import json
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, Form, HTTPException, Request, Security
+from fastapi import (
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    FastAPI,
+    Form,
+    HTTPException,
+    Request,
+    Security,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
@@ -381,7 +390,7 @@ def logout() -> RedirectResponse:
     return response
 
 
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False, response_model=None)
 def dashboard(rr_session: str = Cookie(default="")) -> HTMLResponse | RedirectResponse:
     if not _valid_password(rr_session):
         return RedirectResponse(url="/login", status_code=302)
