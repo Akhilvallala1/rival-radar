@@ -54,7 +54,8 @@ jobs:
             --set-env-vars "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
             --set-env-vars "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}" \
             --set-env-vars "LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}" \
-            --set-env-vars "LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}"
+            --set-env-vars "LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}" \
+            --set-env-vars "DASHBOARD_PASSWORD=${{ secrets.DASHBOARD_PASSWORD }}"
 
       - name: Show service URL
         run: |
