@@ -2,8 +2,8 @@ import json
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Security
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, Form, HTTPException, Request, Security
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from rival_radar.config import settings
 from rival_radar.database import get_session, init_db
 from rival_radar.models import Competitor, Run
+from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -22,10 +23,63 @@ limiter = Limiter(key_func=get_remote_address)
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-def require_auth(api_key: str = Security(_api_key_header)) -> None:
-    if not secrets.compare_digest(api_key or "", settings.dashboard_password):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
+def _valid_password(pw: str) -> bool:
+    return bool(pw) and secrets.compare_digest(pw, settings.dashboard_password)
+
+
+def require_auth(
+    request: Request,
+    api_key: str = Security(_api_key_header),
+    rr_session: str = Cookie(default=""),
+) -> None:
+    if _valid_password(api_key) or _valid_password(rr_session):
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Rival Radar — Sign in</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: #0f0f10; color: #e8e8ed; min-height: 100vh;
+           display: flex; align-items: center; justify-content: center; }
+    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px;
+            padding: 2.75rem 2.25rem; width: 360px; }
+    .logo { font-size: 1.6rem; font-weight: 800; color: #fff; text-align: center;
+            margin-bottom: 0.35rem; letter-spacing: -0.5px; }
+    .logo span { color: #6366f1; }
+    .sub { text-align: center; font-size: 0.875rem; color: #6b7280; margin-bottom: 2rem; }
+    label { display: block; font-size: 0.78rem; color: #9ca3af; margin-bottom: 0.3rem; }
+    input[type=password] { width: 100%; background: #0f0f10; border: 1px solid #2d2d3a;
+                           border-radius: 8px; padding: 0.6rem 0.85rem; color: #e8e8ed;
+                           font-size: 0.9rem; outline: none; margin-bottom: 1.25rem; }
+    input[type=password]:focus { border-color: #6366f1; }
+    button { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px;
+             padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+    button:hover { background: #4f46e5; }
+    .err { color: #ef4444; font-size: 0.8rem; margin-top: 0.85rem; text-align: center;
+           min-height: 1.2rem; }
+    .footer { text-align: center; font-size: 0.75rem; color: #374151; margin-top: 1.75rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Rival <span>Radar</span></div>
+    <div class="sub">Competitive intelligence for B2B teams</div>
+    <form method="post" action="/login">
+      <label for="password">Dashboard password</label>
+      <input id="password" name="password" type="password" placeholder="Enter password" autofocus required />
+      <button type="submit">Sign in</button>
+    </form>
+    {error}
+    <div class="footer">Rival Radar &copy; 2026</div>
+  </div>
+</body>
+</html>"""
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -102,29 +156,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
              pointer-events: none; }
     .toast.show { opacity: 1; }
 
-    /* ── Login overlay ── */
-    .login-overlay { position: fixed; inset: 0; background: #0f0f10;
-                     display: flex; align-items: center; justify-content: center; z-index: 100; }
-    .login-box { background: #16161e; border: 1px solid #1e1e2a; border-radius: 12px;
-                 padding: 2.5rem 2rem; width: 340px; text-align: center; }
-    .login-box h2 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; }
-    .login-box p { font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem; }
-    .login-box input { margin-bottom: 1rem; }
-    .login-error { color: #ef4444; font-size: 0.8rem; margin-top: 0.5rem; min-height: 1.2rem; }
   </style>
 </head>
 <body>
-
-<!-- Login overlay -->
-<div class="login-overlay" id="login-overlay">
-  <div class="login-box">
-    <h2>Rival <span style="color:#6366f1">Radar</span></h2>
-    <p>Enter your dashboard password to continue</p>
-    <input id="login-pw" type="password" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()" />
-    <button class="btn btn-primary" onclick="doLogin()">Sign in</button>
-    <div class="login-error" id="login-error"></div>
-  </div>
-</div>
 
 <nav>
   <div class="logo">Rival <span>Radar</span></div>
@@ -132,7 +166,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <a href="/docs">API Docs</a>
     <a href="/health">Health</a>
     <a href="https://github.com/Akhilvallala1/rival-radar">GitHub</a>
-    <a href="#" onclick="logout()" style="color:#ef4444;margin-left:1.5rem">Sign out</a>
+    <a href="/logout" style="color:#ef4444;margin-left:1.5rem">Sign out</a>
   </div>
 </nav>
 
@@ -179,33 +213,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <div class="toast" id="toast"></div>
 
 <script>
-const BASE = '';
-
-// ── Auth ──────────────────────────────────────────────────────────────────────
-function getKey() { return sessionStorage.getItem('rr_key') || ''; }
-
-function authHeaders(extra) {
-  return Object.assign({'X-API-Key': getKey()}, extra || {});
-}
-
-async function doLogin() {
-  const pw = document.getElementById('login-pw').value;
-  const res = await fetch(BASE + '/competitors', {headers: {'X-API-Key': pw}});
-  if (res.status === 401) {
-    document.getElementById('login-error').textContent = 'Incorrect password.';
-    return;
-  }
-  sessionStorage.setItem('rr_key', pw);
-  document.getElementById('login-overlay').style.display = 'none';
-  loadCompetitors();
-  loadRuns();
-}
-
-function logout() {
-  sessionStorage.removeItem('rr_key');
-  location.reload();
-}
-
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -223,10 +230,15 @@ function timeAgo(iso) {
   return Math.floor(diff/86400) + 'd ago';
 }
 
+function handleUnauth(res) {
+  if (res.status === 401) { window.location.href = '/login'; return true; }
+  return false;
+}
+
 // ── Data ──────────────────────────────────────────────────────────────────────
 async function loadCompetitors() {
-  const res = await fetch(BASE + '/competitors', {headers: authHeaders()});
-  if (res.status === 401) { showLogin(); return; }
+  const res = await fetch('/competitors', {credentials: 'same-origin'});
+  if (handleUnauth(res)) return;
   const data = await res.json();
   const el = document.getElementById('comp-list');
   if (!data.length) { el.innerHTML = '<div class="empty">No competitors yet.</div>'; return; }
@@ -245,8 +257,8 @@ async function loadCompetitors() {
 }
 
 async function loadRuns() {
-  const res = await fetch(BASE + '/runs', {headers: authHeaders()});
-  if (res.status === 401) { showLogin(); return; }
+  const res = await fetch('/runs', {credentials: 'same-origin'});
+  if (handleUnauth(res)) return;
   const data = await res.json();
   const el = document.getElementById('run-list');
   if (!data.length) { el.innerHTML = '<div class="empty">No runs yet — add a competitor and click Run Now.</div>'; return; }
@@ -270,9 +282,10 @@ async function addCompetitor() {
   const urls = document.getElementById('inp-urls').value.trim().split(/\\s+/).filter(Boolean);
   const cadence = document.getElementById('inp-cadence').value;
   if (!name || !urls.length) { toast('Name and at least one URL required'); return; }
-  await fetch(BASE + '/competitors', {
+  await fetch('/competitors', {
     method: 'POST',
-    headers: authHeaders({'Content-Type': 'application/json'}),
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name, urls, cadence})
   });
   document.getElementById('inp-name').value = '';
@@ -282,29 +295,22 @@ async function addCompetitor() {
 }
 
 async function deleteComp(id) {
-  await fetch(BASE + '/competitors/' + id, {method: 'DELETE', headers: authHeaders()});
+  await fetch('/competitors/' + id, {method: 'DELETE', credentials: 'same-origin'});
   toast('Deleted');
   loadCompetitors();
 }
 
 async function runNow(id, name) {
-  const res = await fetch(BASE + '/competitors/' + id + '/run', {method: 'POST', headers: authHeaders()});
+  const res = await fetch('/competitors/' + id + '/run', {method: 'POST', credentials: 'same-origin'});
   if (res.status === 429) { toast('Rate limit hit — max 5 runs/hour'); return; }
   toast('Running ' + name + '...');
   setTimeout(loadRuns, 2000);
 }
 
-function showLogin() {
-  document.getElementById('login-overlay').style.display = 'flex';
-}
-
 // ── Boot ──────────────────────────────────────────────────────────────────────
-if (getKey()) {
-  document.getElementById('login-overlay').style.display = 'none';
-  loadCompetitors();
-  loadRuns();
-  setInterval(() => { loadCompetitors(); loadRuns(); }, 15000);
-}
+loadCompetitors();
+loadRuns();
+setInterval(() => { loadCompetitors(); loadRuns(); }, 15000);
 </script>
 </body>
 </html>"""
@@ -353,8 +359,32 @@ class RunOut(BaseModel):
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+def login_page(error: int = 0) -> HTMLResponse:
+    err_html = '<div class="err">Incorrect password — try again.</div>' if error else '<div class="err"></div>'
+    return HTMLResponse(LOGIN_HTML.replace("{error}", err_html))
+
+
+@app.post("/login", include_in_schema=False)
+async def do_login(password: str = Form(...)) -> RedirectResponse:
+    if not _valid_password(password):
+        return RedirectResponse(url="/login?error=1", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie("rr_session", password, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
+    return response
+
+
+@app.get("/logout", include_in_schema=False)
+def logout() -> RedirectResponse:
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("rr_session")
+    return response
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def dashboard() -> HTMLResponse:
+def dashboard(rr_session: str = Cookie(default="")) -> HTMLResponse | RedirectResponse:
+    if not _valid_password(rr_session):
+        return RedirectResponse(url="/login", status_code=302)
     return HTMLResponse(DASHBOARD_HTML)
 
 
