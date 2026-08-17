@@ -10,6 +10,8 @@ Automated competitive intelligence for B2B SaaS teams. Track competitor websites
 pricing pages, blogs, and G2 reviews — get a Slack digest every week summarizing
 what changed and what it signals.
 
+![Rival Radar demo](demo.gif)
+
 ## What it does
 
 Add a competitor URL, click **Run Now**, and within ~60 seconds you get a Claude-generated brief like:
