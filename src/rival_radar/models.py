@@ -18,17 +18,21 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    competitors: Mapped[list["Competitor"]] = relationship(back_populates="owner")
+
 
 class Competitor(Base):
     __tablename__ = "competitors"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     urls: Mapped[str] = mapped_column(Text, nullable=False)  # JSON list
     slack_webhook: Mapped[str | None] = mapped_column(String(512))
     cadence: Mapped[str] = mapped_column(String(50), default="weekly")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    owner: Mapped["User | None"] = relationship(back_populates="competitors")
     snapshots: Mapped[list["Snapshot"]] = relationship(back_populates="competitor")
     runs: Mapped[list["Run"]] = relationship(back_populates="competitor")
 

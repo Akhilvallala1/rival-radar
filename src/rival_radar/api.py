@@ -71,11 +71,14 @@ def require_auth(
     request: Request,
     api_key: str = Security(_api_key_header),
     rr_session: str = Cookie(default=""),
-) -> None:
+) -> int | None:
+    """Return the authenticated user_id, or None for API-key (admin) access."""
     if bool(api_key) and secrets.compare_digest(api_key, settings.dashboard_password):
-        return
-    if rr_session and _verify_session_token(rr_session) is not None:
-        return
+        return None  # admin key — caller sees all data
+    if rr_session:
+        user_id = _verify_session_token(rr_session)
+        if user_id is not None:
+            return user_id
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 _GOOGLE_BTN = """
@@ -636,9 +639,10 @@ def create_competitor(
     request: Request,
     payload: CompetitorCreate,
     db: Session = Depends(get_session),
-    _: None = Depends(require_auth),
+    current_user: int | None = Depends(require_auth),
 ) -> CompetitorOut:
     comp = Competitor(
+        user_id=current_user,
         name=payload.name,
         urls=json.dumps(payload.urls),
         slack_webhook=payload.slack_webhook,
@@ -655,12 +659,14 @@ def create_competitor(
 def list_competitors(
     request: Request,
     db: Session = Depends(get_session),
-    _: None = Depends(require_auth),
+    current_user: int | None = Depends(require_auth),
 ) -> list[CompetitorOut]:
-    comps = db.query(Competitor).all()
+    q = db.query(Competitor)
+    if current_user is not None:
+        q = q.filter(Competitor.user_id == current_user)
     return [
         CompetitorOut(id=c.id, name=c.name, urls=json.loads(c.urls), cadence=c.cadence)
-        for c in comps
+        for c in q.all()
     ]
 
 
@@ -670,9 +676,12 @@ def delete_competitor(
     request: Request,
     competitor_id: int,
     db: Session = Depends(get_session),
-    _: None = Depends(require_auth),
+    current_user: int | None = Depends(require_auth),
 ) -> None:
-    comp = db.query(Competitor).filter_by(id=competitor_id).first()
+    q = db.query(Competitor).filter(Competitor.id == competitor_id)
+    if current_user is not None:
+        q = q.filter(Competitor.user_id == current_user)
+    comp = q.first()
     if not comp:
         raise HTTPException(status_code=404, detail="Competitor not found")
     db.delete(comp)
@@ -686,9 +695,12 @@ def trigger_run(
     competitor_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_session),
-    _: None = Depends(require_auth),
+    current_user: int | None = Depends(require_auth),
 ) -> dict:
-    comp = db.query(Competitor).filter_by(id=competitor_id).first()
+    q = db.query(Competitor).filter(Competitor.id == competitor_id)
+    if current_user is not None:
+        q = q.filter(Competitor.user_id == current_user)
+    comp = q.first()
     if not comp:
         raise HTTPException(status_code=404, detail="Competitor not found")
     background_tasks.add_task(run_competitor, comp)
@@ -701,14 +713,12 @@ def list_runs(
     request: Request,
     limit: int = 20,
     db: Session = Depends(get_session),
-    _: None = Depends(require_auth),
+    current_user: int | None = Depends(require_auth),
 ) -> list[RunOut]:
-    runs = (
-        db.query(Run)
-        .order_by(Run.started_at.desc())
-        .limit(limit)
-        .all()
-    )
+    q = db.query(Run).join(Run.competitor)
+    if current_user is not None:
+        q = q.filter(Competitor.user_id == current_user)
+    runs = q.order_by(Run.started_at.desc()).limit(limit).all()
     return [
         RunOut(
             id=r.id,
