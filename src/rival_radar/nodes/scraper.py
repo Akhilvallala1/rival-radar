@@ -1,8 +1,11 @@
 import asyncio
 import hashlib
+import ipaddress
 import json
 import re
+import socket
 from datetime import datetime
+from urllib.parse import urlparse
 
 import aiohttp
 import feedparser
@@ -10,6 +13,48 @@ import feedparser
 from rival_radar.database import SessionLocal
 from rival_radar.models import Snapshot
 from rival_radar.state import DiffEntry, MonitorState
+
+# Hostnames blocked before DNS resolution to keep SSRF tests fast and reliable.
+_BLOCKED_HOSTNAMES = frozenset({"localhost", "metadata.google.internal", "metadata.aws"})
+
+
+def _check_ip_not_internal(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, label: str) -> None:
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        raise ValueError(f"Address {label!r} is not a public address (SSRF protection)")
+
+
+def validate_url_safe(url: str) -> None:
+    """Reject non-HTTP(S) URLs and URLs that resolve to private/internal addresses."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"URL scheme must be http or https, got {parsed.scheme!r}")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL has no hostname")
+    if hostname.lower() in _BLOCKED_HOSTNAMES or hostname.endswith(".internal"):
+        raise ValueError(f"Hostname {hostname!r} is blocked")
+
+    # Fast-path: raw IP address supplied directly
+    try:
+        addr = ipaddress.ip_address(hostname)
+        _check_ip_not_internal(addr, hostname)
+        return
+    except ValueError:
+        pass  # Not a raw IP; fall through to DNS resolution
+
+    try:
+        results = socket.getaddrinfo(hostname, None)
+    except OSError as exc:
+        raise ValueError(f"Could not resolve hostname {hostname!r}: {exc}") from exc
+    for _af, _sock, _proto, _canon, sockaddr in results:
+        _check_ip_not_internal(ipaddress.ip_address(sockaddr[0]), sockaddr[0])
 
 
 def strip_html(html: str) -> str:
@@ -59,6 +104,7 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                 urls: list[str] = json.loads(raw_urls) if isinstance(raw_urls, str) else raw_urls
                 for url in urls:
                     try:
+                        validate_url_safe(url)
                         if _is_feed_url(url):
                             new_text = await asyncio.get_event_loop().run_in_executor(
                                 None, _fetch_feed, url

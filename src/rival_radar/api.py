@@ -20,11 +20,12 @@ from itsdangerous import BadData, URLSafeTimedSerializer
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from rival_radar.config import settings
 from rival_radar.database import get_session, init_db
 from rival_radar.models import Competitor, Run, User
+from rival_radar.nodes.scraper import validate_url_safe
 from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
 
 
@@ -554,6 +555,12 @@ async def google_login(request: Request) -> RedirectResponse:
     return resp
 
 
+def _oauth_error() -> RedirectResponse:
+    resp = RedirectResponse(url="/login?error=2", status_code=302)
+    resp.delete_cookie("oauth_state")
+    return resp
+
+
 @app.get("/auth/google/callback", name="google_callback", include_in_schema=False)
 async def google_callback(
     request: Request,
@@ -563,7 +570,7 @@ async def google_callback(
 ) -> RedirectResponse:
     stored_state = request.cookies.get("oauth_state", "")
     if not code or not stored_state or not secrets.compare_digest(stored_state, state):
-        return RedirectResponse(url="/login?error=2", status_code=302)
+        return _oauth_error()
 
     redirect_uri = str(request.url_for("google_callback"))
     async with httpx.AsyncClient() as client:
@@ -578,24 +585,24 @@ async def google_callback(
             },
         )
         if token_resp.status_code != 200:
-            return RedirectResponse(url="/login?error=2", status_code=302)
+            return _oauth_error()
         access_token = token_resp.json().get("access_token", "")
         if not access_token:
-            return RedirectResponse(url="/login?error=2", status_code=302)
+            return _oauth_error()
         userinfo_resp = await client.get(
             "https://www.googleapis.com/oauth2/v2/userinfo",
             headers={"Authorization": f"Bearer {access_token}"},
         )
 
     if userinfo_resp.status_code != 200:
-        return RedirectResponse(url="/login?error=2", status_code=302)
+        return _oauth_error()
 
     info = userinfo_resp.json()
     google_id = info.get("id", "")
     email = info.get("email", "").lower().strip()
     name = info.get("name", "")
     if not google_id or not email:
-        return RedirectResponse(url="/login?error=2", status_code=302)
+        return _oauth_error()
 
     user = db.query(User).filter(User.google_id == google_id).first()
     if not user:
@@ -641,6 +648,11 @@ def create_competitor(
     db: Session = Depends(get_session),
     current_user: int | None = Depends(require_auth),
 ) -> CompetitorOut:
+    for url in payload.urls:
+        try:
+            validate_url_safe(url)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     comp = Competitor(
         user_id=current_user,
         name=payload.name,
@@ -715,7 +727,7 @@ def list_runs(
     db: Session = Depends(get_session),
     current_user: int | None = Depends(require_auth),
 ) -> list[RunOut]:
-    q = db.query(Run).join(Run.competitor)
+    q = db.query(Run).options(joinedload(Run.competitor)).join(Run.competitor)
     if current_user is not None:
         q = q.filter(Competitor.user_id == current_user)
     runs = q.order_by(Run.started_at.desc()).limit(limit).all()

@@ -1,4 +1,6 @@
-from rival_radar.nodes.scraper import compute_diff, compute_hash, strip_html
+import pytest
+
+from rival_radar.nodes.scraper import compute_diff, compute_hash, strip_html, validate_url_safe
 
 
 def test_strip_html_removes_tags():
@@ -57,3 +59,64 @@ def test_compute_diff_excerpt_truncated():
     long_text = "x" * 1000
     diff = compute_diff("", long_text)
     assert len(diff["new_excerpt"]) == 400
+
+
+# ── SSRF / URL validation ─────────────────────────────────────────────────────
+
+
+def test_validate_url_safe_accepts_public_https():
+    validate_url_safe("https://example.com/pricing")
+
+
+def test_validate_url_safe_accepts_public_http():
+    validate_url_safe("http://example.com/pricing")
+
+
+def test_validate_url_safe_rejects_ftp_scheme():
+    with pytest.raises(ValueError, match="http or https"):
+        validate_url_safe("ftp://example.com/file.txt")
+
+
+def test_validate_url_safe_rejects_file_scheme():
+    with pytest.raises(ValueError, match="http or https"):
+        validate_url_safe("file:///etc/passwd")
+
+
+def test_validate_url_safe_rejects_localhost():
+    with pytest.raises(ValueError):
+        validate_url_safe("http://localhost/admin")
+
+
+def test_validate_url_safe_rejects_loopback_ip():
+    with pytest.raises(ValueError):
+        validate_url_safe("http://127.0.0.1/")
+
+
+def test_validate_url_safe_rejects_private_class_a():
+    with pytest.raises(ValueError):
+        validate_url_safe("http://10.0.0.1/")
+
+
+def test_validate_url_safe_rejects_private_class_b():
+    with pytest.raises(ValueError):
+        validate_url_safe("http://172.16.0.1/")
+
+
+def test_validate_url_safe_rejects_private_class_c():
+    with pytest.raises(ValueError):
+        validate_url_safe("http://192.168.1.1/")
+
+
+def test_validate_url_safe_rejects_metadata_endpoint():
+    with pytest.raises(ValueError):
+        validate_url_safe("http://metadata.google.internal/computeMetadata/v1/")
+
+
+def test_validate_url_safe_rejects_ipv6_loopback():
+    with pytest.raises(ValueError):
+        validate_url_safe("http://[::1]/")
+
+
+def test_validate_url_safe_rejects_no_hostname():
+    with pytest.raises(ValueError):
+        validate_url_safe("http:///path")

@@ -33,8 +33,8 @@ class Competitor(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     owner: Mapped["User | None"] = relationship(back_populates="competitors")
-    snapshots: Mapped[list["Snapshot"]] = relationship(back_populates="competitor")
-    runs: Mapped[list["Run"]] = relationship(back_populates="competitor")
+    snapshots: Mapped[list["Snapshot"]] = relationship(back_populates="competitor", cascade="all, delete-orphan")
+    runs: Mapped[list["Run"]] = relationship(back_populates="competitor", cascade="all, delete-orphan")
 
 
 class Snapshot(Base):
