@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -39,6 +39,9 @@ class Competitor(Base):
 
 class Snapshot(Base):
     __tablename__ = "snapshots"
+    __table_args__ = (
+        Index("ix_snapshot_comp_url_time", "competitor_id", "url", "scraped_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     competitor_id: Mapped[int] = mapped_column(ForeignKey("competitors.id"), nullable=False)
