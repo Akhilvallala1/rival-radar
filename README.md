@@ -168,11 +168,9 @@ Every push to `master` builds a Docker image, pushes to GCP Artifact Registry, a
 
 ## Roadmap
 
-- [ ] **Tier enforcement** — free/pro/team limits on competitor count and cadence
-- [ ] **G2 review monitoring** — structured extraction of rating, review count, and recent reviews
-- [ ] **Keyword alerts** — instant Slack ping when a tracked keyword appears in a diff
-
-See [`docs/`](docs/) for implementation specs.
+- [x] **Tier enforcement** — starter (2 competitors, weekly), pro (10, daily), team (unlimited, hourly); enforced server-side on every request
+- [x] **G2 review monitoring** — structured extraction of rating, review count, and recent reviews via JSON-LD + CSS fallback; hashes structured data so cosmetic G2 page changes don't trigger false positives
+- [x] **Keyword alerts** — instant Slack ping when a tracked keyword appears in a scrape diff; API: `POST/GET /competitors/{id}/alerts`, `DELETE /alerts/{id}`
 
 ---
 

@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 import feedparser
+from bs4 import BeautifulSoup
 
 from rival_radar.database import SessionLocal
 from rival_radar.models import Snapshot
@@ -82,6 +83,89 @@ def _is_feed_url(url: str) -> bool:
     return any(url.endswith(s) for s in ("/feed", "/rss", "/rss.xml", "/atom.xml", "/feed.xml"))
 
 
+def _is_g2_url(url: str) -> bool:
+    return "g2.com/products/" in url and "/reviews" in url
+
+
+def _extract_jsonld_g2(soup: BeautifulSoup) -> dict:
+    for tag in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(tag.string or "")
+        except json.JSONDecodeError:
+            continue
+        if data.get("@type") == "Product" and "aggregateRating" in data:
+            agg = data["aggregateRating"]
+            reviews_raw = data.get("review", [])[:3]
+            return {
+                "overall_rating": float(agg.get("ratingValue", 0)),
+                "review_count": int(agg.get("reviewCount", 0)),
+                "recent_reviews": [
+                    {
+                        "title": r.get("name", ""),
+                        "snippet": r.get("reviewBody", "")[:200],
+                    }
+                    for r in reviews_raw
+                ],
+            }
+    return {"overall_rating": None, "review_count": None, "recent_reviews": []}
+
+
+def _parse_g2_page(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+
+    # JSON-LD is more stable than CSS selectors; try it first
+    result = _extract_jsonld_g2(soup)
+    if result["overall_rating"] is not None:
+        return result
+
+    # CSS selector fallback for pages without JSON-LD
+    rating_el = soup.select_one("[data-testid='rating-stars'] + * .fw-semibold")
+    overall_rating = None
+    if rating_el:
+        try:
+            overall_rating = float(rating_el.text.strip())
+        except ValueError:
+            pass
+
+    count_el = soup.select_one("[data-testid='reviews-count']")
+    review_count = None
+    if count_el:
+        m = re.search(r"(\d[\d,]*)", count_el.text)
+        if m:
+            try:
+                review_count = int(m.group(1).replace(",", ""))
+            except ValueError:
+                pass
+
+    review_cards = soup.select(".paper.paper--white.paper--box")[:3]
+    recent_reviews = []
+    for card in review_cards:
+        title_el = card.select_one(".review-title, [itemprop='name']")
+        body_el = card.select_one(".review-text, [itemprop='reviewBody']")
+        recent_reviews.append({
+            "title": title_el.get_text(strip=True) if title_el else "",
+            "snippet": body_el.get_text(strip=True)[:200] if body_el else "",
+        })
+
+    return {
+        "overall_rating": overall_rating,
+        "review_count": review_count,
+        "recent_reviews": recent_reviews,
+    }
+
+
+def _hash_g2_data(data: dict) -> str:
+    canonical = json.dumps(data, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+async def _fetch_g2_page(url: str, session: aiohttp.ClientSession) -> dict:
+    headers = {"User-Agent": "RivalRadar/0.1 (competitive-intelligence)"}
+    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers=headers) as resp:
+        html = await resp.text(errors="replace")
+    return _parse_g2_page(html)
+
+
 async def _fetch_page(url: str, session: aiohttp.ClientSession) -> str:
     headers = {"User-Agent": "RivalRadar/0.1 (competitive-intelligence)"}
     async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers=headers) as resp:
@@ -128,19 +212,21 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                 for url in urls:
                     try:
                         validate_url_safe(url)
-                        if _is_feed_url(url):
+                        if _is_g2_url(url):
+                            g2_data = await _fetch_g2_page(url, http)
+                            new_hash = _hash_g2_data(g2_data)
+                            new_text = json.dumps(g2_data)
+                        elif _is_feed_url(url):
                             new_text = await asyncio.get_event_loop().run_in_executor(
                                 None, _fetch_feed, url
                             )
+                            new_hash = compute_hash(new_text)
                         else:
                             new_text = await _fetch_page(url, http)
-
-                        new_hash = compute_hash(new_text)
+                            new_hash = compute_hash(new_text)
 
                         # O(1) dict lookup — no per-URL DB query.
                         prev = prev_snapshot.get((comp["competitor_id"], url))
-                        # Use the stored content_hash for change detection instead
-                        # of recomputing the hash from the old text.
                         if prev is not None:
                             changed = prev.content_hash != new_hash
                             old_text = prev.text
@@ -157,12 +243,21 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                                 scraped_at=datetime.utcnow(),
                             )
                         )
-                        diffs[url] = DiffEntry(
-                            competitor=comp["name"],
-                            changed=changed,
-                            old_excerpt=old_text[:400],
-                            new_excerpt=new_text[:400],
-                        )
+                        if _is_g2_url(url):
+                            diffs[url] = DiffEntry(
+                                competitor=comp["name"],
+                                changed=changed,
+                                old_excerpt=old_text,
+                                new_excerpt=new_text,
+                                source="g2",
+                            )
+                        else:
+                            diffs[url] = DiffEntry(
+                                competitor=comp["name"],
+                                changed=changed,
+                                old_excerpt=old_text[:400],
+                                new_excerpt=new_text[:400],
+                            )
                     except Exception as exc:
                         diffs[url] = DiffEntry(
                             competitor=comp["name"],
