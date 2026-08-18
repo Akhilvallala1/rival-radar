@@ -97,8 +97,30 @@ def _fetch_feed(url: str) -> str:
 
 async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
     diffs: dict[str, DiffEntry] = {}
+
+    # Collect all competitor IDs for the batch prefetch.
+    all_competitor_ids = [comp["competitor_id"] for comp in competitors]
+
     async with aiohttp.ClientSession() as http:
         with SessionLocal() as db:
+            # --- Batch prefetch: ONE query instead of one per URL (N+1 → 2 queries) ---
+            # For each (competitor_id, url) pair keep only the most-recent Snapshot.
+            # We fetch all relevant snapshots ordered oldest→newest so that iterating
+            # in order lets the last write for a key be the most-recent one.
+            all_snapshots = (
+                db.query(Snapshot)
+                .filter(Snapshot.competitor_id.in_(all_competitor_ids))
+                .order_by(Snapshot.scraped_at.asc())
+                .all()
+            )
+            # Build a dict keyed by (competitor_id, url) → latest Snapshot
+            prev_snapshot: dict[tuple, Snapshot] = {}
+            for snap in all_snapshots:
+                prev_snapshot[(snap.competitor_id, snap.url)] = snap
+
+            # Accumulate new Snapshot objects; committed once at the end.
+            new_snapshots: list[Snapshot] = []
+
             for comp in competitors:
                 raw_urls = comp.get("urls", [])
                 urls: list[str] = json.loads(raw_urls) if isinstance(raw_urls, str) else raw_urls
@@ -113,16 +135,25 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                             new_text = await _fetch_page(url, http)
 
                         new_hash = compute_hash(new_text)
-                        prev = (
-                            db.query(Snapshot)
-                            .filter_by(competitor_id=comp["competitor_id"], url=url)
-                            .order_by(Snapshot.scraped_at.desc())
-                            .first()
-                        )
-                        old_text = prev.text if prev else ""
-                        diff = compute_diff(old_text, new_text)
 
-                        db.add(
+                        # O(1) dict lookup — no per-URL DB query.
+                        prev = prev_snapshot.get((comp["competitor_id"], url))
+                        # Use the stored content_hash for change detection instead
+                        # of recomputing the hash from the old text.
+                        if prev is not None:
+                            changed = prev.content_hash != new_hash
+                            old_text = prev.text
+                        else:
+                            changed = True
+                            old_text = ""
+
+                        diff = {
+                            "changed": changed,
+                            "old_excerpt": old_text[:400],
+                            "new_excerpt": new_text[:400],
+                        }
+
+                        new_snapshots.append(
                             Snapshot(
                                 competitor_id=comp["competitor_id"],
                                 url=url,
@@ -131,7 +162,6 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                                 scraped_at=datetime.utcnow(),
                             )
                         )
-                        db.commit()
                         diffs[url] = DiffEntry(
                             competitor=comp["name"],
                             changed=diff["changed"],
@@ -145,6 +175,12 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                             old_excerpt=f"error: {exc}",
                             new_excerpt="",
                         )
+
+            # Single bulk insert + one commit for all new snapshots.
+            if new_snapshots:
+                db.add_all(new_snapshots)
+                db.commit()
+
     return diffs
 
 

@@ -1,5 +1,6 @@
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -60,11 +61,14 @@ def run_all_competitors() -> None:
     with SessionLocal() as db:
         competitors = db.query(Competitor).all()
 
-    for comp in competitors:
-        try:
-            run_competitor(comp)
-        except Exception:
-            logger.exception("Pipeline failed for competitor: %s", comp.name)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_comp = {executor.submit(run_competitor, comp): comp for comp in competitors}
+        for future in as_completed(future_to_comp):
+            comp = future_to_comp[future]
+            try:
+                future.result()
+            except Exception:
+                logger.exception("Pipeline failed for competitor: %s", comp.name)
 
 
 @scheduler.scheduled_job("cron", day_of_week="mon", hour=9, minute=0, id="weekly_run")
