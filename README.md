@@ -2,123 +2,180 @@
 
 [![CI](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml)
 [![Deploy](https://github.com/Akhilvallala1/rival-radar/actions/workflows/deploy.yml/badge.svg)](https://github.com/Akhilvallala1/rival-radar/actions/workflows/deploy.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Live dashboard:** https://rival-radar-247626835860.us-central1.run.app  
+**Automated competitive intelligence for B2B SaaS teams.**
+
+Track competitor websites, pricing pages, and blogs. Get a Claude-generated Slack brief every week summarising what changed and what it signals — no manual checking, no noise.
+
+**Live demo:** https://rival-radar-247626835860.us-central1.run.app  
 **API docs:** https://rival-radar-247626835860.us-central1.run.app/docs
-
-Automated competitive intelligence for B2B SaaS teams. Track competitor websites,
-pricing pages, blogs, and G2 reviews — get a Slack digest every week summarizing
-what changed and what it signals.
 
 ![Rival Radar demo](demo.gif)
 
-## What it does
+---
 
-Add a competitor URL, click **Run Now**, and within ~60 seconds you get a Claude-generated brief like:
+## What you get
 
-> *🎯 Rival Radar — Weekly Brief | June 07, 2026*
+Add a competitor, hit **Run Now**, and in ~60 seconds you get a brief like this in Slack:
+
+> **🎯 Rival Radar — Weekly Brief | August 18, 2026**
 >
-> **HubSpot** — Pricing page title tag updated to "Marketing Software Pricing" — a shift
-> away from all-in-one CRM framing toward marketing-specific buyers. Suggests possible
-> unbundling of their platform narrative. Update battlecards for AEs in competitive deals.
+> **HubSpot** — Pricing page title tag updated from "CRM & Sales Software" to "Marketing Software Pricing" — a shift away from all-in-one framing toward marketing-specific buyers. Suggests possible unbundling of their platform narrative.
+>
+> **Recommended action:** Update battlecards for AEs in competitive deals. De-emphasise CRM comparison; lead with marketing workflow depth.
 
-## Architecture
+The analyst node reads the diff, interprets *what it signals*, and the writer turns it into something your sales team can actually use.
+
+---
+
+## How it works
 
 ```
-HTTP trigger / weekly cron
-        │
-        ▼
-   LangGraph pipeline
-   ┌──────────────────────────────────────┐
-   │  scraper → analyst → writer → notifier │
-   └──────────────────────────────────────┘
-        │                    │
-   aiohttp + SHA-256    ChatAnthropic
-   diff detection       claude-sonnet-4-6
-        │                    │
-   SQLAlchemy ORM       Slack webhook
-   (Postgres/SQLite)
+Cron trigger (Monday 09:00) or manual Run Now
+              │
+              ▼
+     ┌─────────────────────────────────────────┐
+     │           LangGraph pipeline             │
+     │                                          │
+     │  scraper ──► analyst ──► writer ──► notifier
+     │                                          │
+     └─────────────────────────────────────────┘
+          │              │              │
+    async HTTP      Claude Sonnet    Slack
+    + SHA-256       interprets       webhook
+    diff vs DB      the signal
 ```
 
-- **scraper** — async HTTP fetch, SHA-256 content diff vs last snapshot
-- **analyst** — Claude interprets what each change signals competitively
-- **writer** — Claude synthesizes a Slack-ready weekly brief with actionable takeaways
-- **notifier** — posts the brief to your Slack channel via webhook
+| Node | What it does |
+|---|---|
+| **scraper** | Async-fetches each URL with `aiohttp`, strips HTML, SHA-256 diffs against the last snapshot. Batch DB prefetch — 2 queries per run regardless of competitor count. |
+| **analyst** | Feeds each changed excerpt to Claude with competitive-intelligence prompting. Returns structured `DiffEntry` objects. |
+| **writer** | Claude synthesises all diffs into a concise, actionable Slack brief. |
+| **notifier** | Posts the brief to your Slack channel via webhook. |
+
+---
+
+## Features
+
+- **Multi-user SaaS** — email/password auth + Google OAuth, session cookies (`HttpOnly`, `SameSite=Lax`, `Secure`), per-user data isolation
+- **SSRF protection** — `validate_url_safe()` blocks private IPs, link-local ranges, and reserved hostnames before any outbound fetch
+- **Concurrent scheduling** — `ThreadPoolExecutor(max_workers=4)` runs competitors in parallel; one failure doesn't block others
+- **Observability** — full Langfuse tracing on every LLM call, run history with timestamps and status in the dashboard
+- **Rate limiting** — `slowapi` on auth endpoints, keyed by real client IP behind Cloud Run's load balancer
+- **CI/CD** — GitHub Actions: ruff → mypy → pytest → Docker build → GCP Cloud Run deploy (deploy blocked until tests pass)
+
+---
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
-| Agent framework | LangGraph |
-| LLM | Claude (claude-sonnet-4-6) via langchain-anthropic |
+| Agent framework | [LangGraph](https://github.com/langchain-ai/langgraph) |
+| LLM | Claude Sonnet 4 via `langchain-anthropic` |
 | API | FastAPI + uvicorn |
-| Database | SQLAlchemy 2.0 (SQLite dev / Postgres prod) |
-| Scheduler | APScheduler (weekly cron, Monday 09:00) |
-| Observability | Langfuse tracing |
-| CI/CD | GitHub Actions → Google Cloud Run |
-| Infra | Docker, GCP Artifact Registry |
+| Auth | `itsdangerous` sessions, `bcrypt`, Google OAuth 2.0 |
+| Database | SQLAlchemy 2.0 — SQLite (dev) / Postgres (prod) |
+| Scheduler | APScheduler — weekly cron, Monday 09:00 |
+| Observability | Langfuse |
+| CI/CD | GitHub Actions → GCP Artifact Registry → Cloud Run |
+| Infra | Docker, Terraform-free (single Cloud Run service) |
+
+---
 
 ## Quickstart
 
 ```bash
-cp .env.example .env
-# fill in ANTHROPIC_API_KEY and SLACK_WEBHOOK_URL
+git clone https://github.com/Akhilvallala1/rival-radar
+cd rival-radar
+cp .env.example .env          # fill in ANTHROPIC_API_KEY + SLACK_WEBHOOK_URL
 pip install -e ".[dev]"
+```
 
-# scrape a competitor and see the diff
+**Scrape a URL and see the diff:**
+```bash
 python -m rival_radar scrape --url https://competitor.com/pricing --name "Acme Corp"
+```
 
-# run the full pipeline once
+**Run the full AI pipeline:**
+```bash
 python -m rival_radar run --competitor-id 1
 ```
+
+**Start the web dashboard:**
+```bash
+uvicorn rival_radar.api:app --reload
+# open http://localhost:8000
+```
+
+---
 
 ## API
 
 ```bash
-uvicorn rival_radar.api:app --reload
-
-# health
+# Health check
 curl http://localhost:8000/health
 
-# add a competitor
+# Add a competitor
 curl -X POST http://localhost:8000/competitors \
+  -H "X-API-Key: changeme" \
   -H "Content-Type: application/json" \
-  -d '{"name":"HubSpot","urls":["https://www.hubspot.com/pricing"],"cadence":"weekly"}'
+  -d '{"name":"HubSpot","urls":["https://hubspot.com/pricing"],"cadence":"weekly"}'
 
-# trigger a run
-curl -X POST http://localhost:8000/competitors/1/run
+# Trigger a run immediately
+curl -X POST http://localhost:8000/competitors/1/run \
+  -H "X-API-Key: changeme"
 
-# view recent runs and briefs
-curl http://localhost:8000/runs
+# View recent briefs
+curl http://localhost:8000/runs -H "X-API-Key: changeme"
 ```
+
+Interactive docs at `/docs` (Swagger UI).
+
+---
 
 ## Development
 
 ```bash
-ruff check src/ tests/
-mypy src/
-pytest tests/ -v
+ruff check src/ tests/    # lint
+mypy src/                 # type check
+pytest tests/ -v          # 95 tests across auth, multi-tenancy, SSRF, scheduler, integration
 ```
+
+All three gates run on every PR via GitHub Actions before any deploy.
+
+---
 
 ## Deployment
 
-Pushes to `master` automatically build a Docker image, push to GCP Artifact Registry,
-and deploy to Cloud Run via GitHub Actions. Required secrets:
+Every push to `master` builds a Docker image, pushes to GCP Artifact Registry, and deploys to Cloud Run — but only after CI passes.
+
+**Required GitHub secrets:**
 
 | Secret | Description |
 |---|---|
 | `GCP_PROJECT_ID` | GCP project ID |
 | `GCP_CREDENTIALS` | Service account key JSON |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `SLACK_WEBHOOK_URL` | Slack incoming webhook URL |
+| `SLACK_WEBHOOK_URL` | Slack incoming webhook |
 | `DATABASE_URL` | Postgres connection string |
-| `LANGFUSE_PUBLIC_KEY` | Langfuse public key (optional) |
-| `LANGFUSE_SECRET_KEY` | Langfuse secret key (optional) |
+| `SECRET_KEY` | Session signing key (random 32+ char string) |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key *(optional)* |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key *(optional)* |
 
-## Pricing (SaaS)
+---
 
-| Tier | Price | Competitors | Cadence |
-|------|-------|-------------|---------|
-| Starter | Free | 2 | Weekly |
-| Pro | $99/mo | 10 | Daily |
-| Team | $299/mo | Unlimited | Hourly |
+## Roadmap
+
+- [ ] **Tier enforcement** — free/pro/team limits on competitor count and cadence
+- [ ] **G2 review monitoring** — structured extraction of rating, review count, and recent reviews
+- [ ] **Keyword alerts** — instant Slack ping when a tracked keyword appears in a diff
+
+See [`docs/`](docs/) for implementation specs.
+
+---
+
+## License
+
+MIT
