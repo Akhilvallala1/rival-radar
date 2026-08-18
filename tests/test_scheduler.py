@@ -28,7 +28,9 @@ def _fresh_db():
 @pytest.fixture()
 def competitor():
     s = _Session()
-    comp = Competitor(name="Test Corp", urls=json.dumps(["https://test.example.com"]), cadence="weekly")
+    comp = Competitor(
+        name="Test Corp", urls=json.dumps(["https://test.example.com"]), cadence="weekly"
+    )
     s.add(comp)
     s.commit()
     comp_id = comp.id
@@ -43,7 +45,9 @@ def competitor():
 @patch("rival_radar.scheduler.SessionLocal", _Session)
 @patch("rival_radar.tracing.build_run_config", return_value={})
 @patch("rival_radar.graph.app")
-def test_run_competitor_creates_run_record(mock_app: MagicMock, _mock_cfg: MagicMock, competitor: Competitor):
+def test_run_competitor_creates_run_record(
+    mock_app: MagicMock, _mock_cfg: MagicMock, competitor: Competitor
+):
     mock_app.invoke.return_value = {"brief": "Test brief"}
 
     run_competitor(competitor)
@@ -57,7 +61,9 @@ def test_run_competitor_creates_run_record(mock_app: MagicMock, _mock_cfg: Magic
 @patch("rival_radar.scheduler.SessionLocal", _Session)
 @patch("rival_radar.tracing.build_run_config", return_value={})
 @patch("rival_radar.graph.app")
-def test_run_competitor_sets_status_done(mock_app: MagicMock, _mock_cfg: MagicMock, competitor: Competitor):
+def test_run_competitor_sets_status_done(
+    mock_app: MagicMock, _mock_cfg: MagicMock, competitor: Competitor
+):
     mock_app.invoke.return_value = {"brief": "Competitor dropped pricing by 20%."}
 
     run_competitor(competitor)
