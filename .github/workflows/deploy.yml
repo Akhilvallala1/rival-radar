@@ -15,7 +15,7 @@ jobs:
     name: Build & Deploy
     runs-on: ubuntu-latest
     # Only run after CI passes on the same commit
-    needs: []
+    needs: [test]
 
     steps:
       - uses: actions/checkout@v4
