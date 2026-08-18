@@ -57,8 +57,14 @@ def seeded(client: TestClient):
     s.refresh(u1)
     s.refresh(u2)
 
-    c1 = Competitor(user_id=u1.id, name="AliceCorp", urls=json.dumps(["https://alice.example.com"]), cadence="weekly")
-    c2 = Competitor(user_id=u2.id, name="BobCorp", urls=json.dumps(["https://bob.example.com"]), cadence="weekly")
+    c1 = Competitor(
+        user_id=u1.id, name="AliceCorp",
+        urls=json.dumps(["https://alice.example.com"]), cadence="weekly"
+    )
+    c2 = Competitor(
+        user_id=u2.id, name="BobCorp",
+        urls=json.dumps(["https://bob.example.com"]), cadence="weekly"
+    )
     s.add_all([c1, c2])
     s.commit()
     s.refresh(c1)

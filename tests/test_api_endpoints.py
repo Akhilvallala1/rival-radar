@@ -177,8 +177,6 @@ def test_google_callback_happy_path_clears_oauth_state_cookie(client: TestClient
             cookies={"oauth_state": state},
         )
 
-    # After successful callback, the oauth_state cookie should be deleted (max-age=0 or absent)
-    set_cookie_header = resp.headers.get("set-cookie", "")
     # The session cookie is set; oauth_state should be cleared
     assert resp.status_code == 302
     # oauth_state cookie cleared means either not present in new cookies or max-age=0
@@ -188,7 +186,6 @@ def test_google_callback_happy_path_clears_oauth_state_cookie(client: TestClient
 
 def test_google_callback_creates_new_user_in_db(client: TestClient):
     """Successful Google OAuth callback should create the user if they don't exist."""
-    from rival_radar.api import _verify_session_token
     from rival_radar.models import User
 
     state = "test-state-new-user-111"
