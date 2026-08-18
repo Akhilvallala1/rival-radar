@@ -97,16 +97,17 @@ LOGIN_HTML = """<!DOCTYPE html>
   <title>Rival Radar — Sign in</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f10; color: #e8e8ed; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px; padding: 2.75rem 2.25rem; width: 380px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f10; color: #e8e8ed; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px; padding: 2.75rem 2.25rem; width: min(380px, 100%); }
     .logo { font-size: 1.6rem; font-weight: 800; color: #fff; text-align: center; margin-bottom: 0.35rem; letter-spacing: -0.5px; }
     .logo span { color: #6366f1; }
     .sub { text-align: center; font-size: 0.875rem; color: #6b7280; margin-bottom: 2rem; }
     label { display: block; font-size: 0.78rem; color: #9ca3af; margin-bottom: 0.3rem; }
     input { width: 100%; background: #0f0f10; border: 1px solid #2d2d3a; border-radius: 8px; padding: 0.6rem 0.85rem; color: #e8e8ed; font-size: 0.9rem; outline: none; margin-bottom: 1rem; }
     input:focus { border-color: #6366f1; }
-    button[type=submit] { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 0.1rem; }
-    button[type=submit]:hover { background: #4f46e5; }
+    button[type=submit] { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 0.1rem; transition: background 0.15s; }
+    button[type=submit]:hover:not(:disabled) { background: #4f46e5; }
+    button[type=submit]:disabled { background: #3c3e6b; cursor: not-allowed; opacity: 0.7; }
     .btn-google { display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; background: #fff; color: #374151; border: 1px solid #d1d5db; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.875rem; font-weight: 500; text-decoration: none; }
     .btn-google:hover { background: #f9fafb; }
     .divider { display: flex; align-items: center; gap: 0.75rem; margin: 1.1rem 0; color: #4b5563; font-size: 0.78rem; }
@@ -120,18 +121,25 @@ LOGIN_HTML = """<!DOCTYPE html>
   <div class="card">
     <div class="logo">Rival <span>Radar</span></div>
     <div class="sub">Competitive intelligence for B2B teams</div>
-    <form method="post" action="/login">
+    <form method="post" action="/login" id="login-form">
       <label for="email">Email</label>
       <input id="email" name="email" type="email" placeholder="you@company.com" autofocus required />
       <label for="password">Password</label>
       <input id="password" name="password" type="password" placeholder="••••••••" required />
-      <button type="submit">Sign in</button>
+      <button type="submit" id="login-btn">Sign in</button>
     </form>
     [GOOGLE_BTN]
     {error}
     <p class="footer">Don't have an account? <a href="/signup">Sign up</a></p>
     <p class="footer" style="margin-top:0.4rem;color:#374151">Rival Radar &copy; 2026</p>
   </div>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', function() {
+      var btn = document.getElementById('login-btn');
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+    });
+  </script>
 </body>
 </html>""".replace("[GOOGLE_BTN]", _GOOGLE_BTN)
 
@@ -147,16 +155,17 @@ SIGNUP_HTML = """<!DOCTYPE html>
   <title>Rival Radar — Create account</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f10; color: #e8e8ed; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px; padding: 2.75rem 2.25rem; width: 380px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f10; color: #e8e8ed; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    .card { background: #16161e; border: 1px solid #1e1e2a; border-radius: 16px; padding: 2.75rem 2.25rem; width: min(380px, 100%); }
     .logo { font-size: 1.6rem; font-weight: 800; color: #fff; text-align: center; margin-bottom: 0.35rem; letter-spacing: -0.5px; }
     .logo span { color: #6366f1; }
     .sub { text-align: center; font-size: 0.875rem; color: #6b7280; margin-bottom: 2rem; }
     label { display: block; font-size: 0.78rem; color: #9ca3af; margin-bottom: 0.3rem; }
     input { width: 100%; background: #0f0f10; border: 1px solid #2d2d3a; border-radius: 8px; padding: 0.6rem 0.85rem; color: #e8e8ed; font-size: 0.9rem; outline: none; margin-bottom: 1rem; }
     input:focus { border-color: #6366f1; }
-    button[type=submit] { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 0.1rem; }
-    button[type=submit]:hover { background: #4f46e5; }
+    button[type=submit] { width: 100%; background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 0.65rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 0.1rem; transition: background 0.15s; }
+    button[type=submit]:hover:not(:disabled) { background: #4f46e5; }
+    button[type=submit]:disabled { background: #3c3e6b; cursor: not-allowed; opacity: 0.7; }
     .btn-google { display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; background: #fff; color: #374151; border: 1px solid #d1d5db; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.875rem; font-weight: 500; text-decoration: none; }
     .btn-google:hover { background: #f9fafb; }
     .divider { display: flex; align-items: center; gap: 0.75rem; margin: 1.1rem 0; color: #4b5563; font-size: 0.78rem; }
@@ -171,20 +180,27 @@ SIGNUP_HTML = """<!DOCTYPE html>
   <div class="card">
     <div class="logo">Rival <span>Radar</span></div>
     <div class="sub">Create your account</div>
-    <form method="post" action="/signup">
+    <form method="post" action="/signup" id="signup-form">
       <label for="name">Name <span class="hint">(optional)</span></label>
       <input id="name" name="name" type="text" placeholder="Your name" />
       <label for="email">Email</label>
       <input id="email" name="email" type="email" placeholder="you@company.com" required />
       <label for="password">Password <span class="hint">(min 8 chars)</span></label>
       <input id="password" name="password" type="password" placeholder="••••••••" minlength="8" required />
-      <button type="submit">Create account</button>
+      <button type="submit" id="signup-btn">Create account</button>
     </form>
     [GOOGLE_BTN]
     {error}
     <p class="footer">Already have an account? <a href="/login">Sign in</a></p>
     <p class="footer" style="margin-top:0.4rem;color:#374151">Rival Radar &copy; 2026</p>
   </div>
+  <script>
+    document.getElementById('signup-form').addEventListener('submit', function() {
+      var btn = document.getElementById('signup-btn');
+      btn.disabled = true;
+      btn.textContent = 'Creating account…';
+    });
+  </script>
 </body>
 </html>""".replace("[GOOGLE_BTN]", _GOOGLE_BTN)
 
@@ -205,13 +221,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     a { color: #6366f1; text-decoration: none; }
 
     nav { display: flex; justify-content: space-between; align-items: center;
-          padding: 1rem 2rem; border-bottom: 1px solid #1e1e24; }
+          padding: 1rem 2rem; border-bottom: 1px solid #1e1e24; flex-wrap: wrap; gap: 0.5rem; }
     .logo { font-size: 1.1rem; font-weight: 700; color: #fff; }
     .logo span { color: #6366f1; }
-    nav a { font-size: 0.85rem; color: #9ca3af; margin-left: 1.5rem; }
+    .nav-links { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+    .nav-links a { font-size: 0.85rem; color: #9ca3af; margin-left: 1.5rem; }
 
     .layout { display: grid; grid-template-columns: 340px 1fr; gap: 1.5rem;
               max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
+
+    @media (max-width: 768px) {
+      nav { padding: 0.75rem 1rem; }
+      .nav-links a { margin-left: 0.75rem; font-size: 0.8rem; }
+      .nav-links .nav-hide { display: none; }
+      .layout { grid-template-columns: 1fr; margin: 1rem auto; padding: 0 1rem; }
+    }
 
     /* ── Panel ── */
     .panel { background: #16161e; border: 1px solid #1e1e2a; border-radius: 12px; padding: 1.5rem; }
@@ -226,12 +250,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     font-size: 0.875rem; outline: none; }
     input:focus, select:focus { border-color: #6366f1; }
     .btn { padding: 0.55rem 1.25rem; border-radius: 6px; font-size: 0.85rem;
-           font-weight: 600; cursor: pointer; border: none; }
+           font-weight: 600; cursor: pointer; border: none; transition: background 0.15s, color 0.15s, border-color 0.15s; }
     .btn-primary { background: #6366f1; color: #fff; width: 100%; margin-top: 0.25rem; }
-    .btn-primary:hover { background: #4f46e5; }
+    .btn-primary:hover:not(:disabled) { background: #4f46e5; }
+    .btn-primary:disabled { background: #3c3e6b; cursor: not-allowed; opacity: 0.7; }
     .btn-sm { padding: 0.3rem 0.75rem; font-size: 0.78rem; border-radius: 5px; }
     .btn-run { background: #1e1e35; color: #818cf8; border: 1px solid #2d2d4a; }
-    .btn-run:hover { background: #2d2d4a; }
+    .btn-run:hover:not(:disabled) { background: #2d2d4a; }
+    .btn-run:disabled { opacity: 0.6; cursor: not-allowed; }
     .btn-del { background: transparent; color: #6b7280; border: 1px solid #2d2d3a; }
     .btn-del:hover { color: #ef4444; border-color: #ef4444; }
 
@@ -244,7 +270,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .comp-cadence { font-size: 0.75rem; color: #6b7280; background: #1e1e2a;
                     padding: 0.15rem 0.5rem; border-radius: 9999px; }
     .comp-urls { font-size: 0.78rem; color: #6b7280; margin: 0.4rem 0 0.6rem; }
-    .comp-actions { display: flex; gap: 0.5rem; }
+    .comp-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
     .empty { color: #4b5563; font-size: 0.875rem; text-align: center; padding: 2rem 0; }
 
     /* ── Runs panel ── */
@@ -273,9 +299,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 <nav>
   <div class="logo">Rival <span>Radar</span></div>
-  <div>
-    <a href="/docs">API Docs</a>
-    <a href="/health">Health</a>
+  <div class="nav-links">
+    <a href="/docs" class="nav-hide">API Docs</a>
+    <a href="/health" class="nav-hide">Health</a>
     <a href="https://github.com/Akhilvallala1/rival-radar">GitHub</a>
     <a href="/logout" style="color:#ef4444;margin-left:1.5rem">Sign out</a>
   </div>
@@ -288,22 +314,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="panel">
       <div class="panel-title">Add Competitor</div>
       <div class="form-group">
-        <label>Name</label>
+        <label for="inp-name">Name</label>
         <input id="inp-name" placeholder="Acme Corp" />
       </div>
       <div class="form-group">
-        <label>URLs (one per line)</label>
+        <label for="inp-urls">URLs (one per line)</label>
         <input id="inp-urls" placeholder="https://acme.com/pricing" />
       </div>
       <div class="form-group">
-        <label>Cadence</label>
+        <label for="inp-cadence">Cadence</label>
         <select id="inp-cadence">
           <option value="weekly">Weekly</option>
           <option value="daily">Daily</option>
           <option value="hourly">Hourly</option>
         </select>
       </div>
-      <button class="btn btn-primary" onclick="addCompetitor()">Add Competitor</button>
+      <button class="btn btn-primary" id="btn-add" onclick="addCompetitor()">Add Competitor</button>
     </div>
 
     <div class="comp-list" id="comp-list">
@@ -321,7 +347,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 // ── Utils ─────────────────────────────────────────────────────────────────────
@@ -368,8 +394,10 @@ async function loadCompetitors() {
       </div>
       <div class="comp-urls">${c.urls.map(escapeHtml).join('<br>')}</div>
       <div class="comp-actions">
-        <button class="btn btn-sm btn-run" data-id="${c.id}" data-name="${escapeHtml(c.name)}" onclick="runNow(this.dataset.id, this.dataset.name)">&#9654; Run Now</button>
-        <button class="btn btn-sm btn-del" onclick="deleteComp(${c.id})">Delete</button>
+        <button class="btn btn-sm btn-run" data-id="${c.id}" data-name="${escapeHtml(c.name)}"
+                onclick="runNow(this)" aria-label="Run ${escapeHtml(c.name)}">&#9654; Run Now</button>
+        <button class="btn btn-sm btn-del" onclick="deleteComp(${c.id})"
+                aria-label="Delete ${escapeHtml(c.name)}">Delete</button>
       </div>
     </div>`).join('');
 }
@@ -385,7 +413,8 @@ async function loadRuns() {
       <div class="run-meta">
         <span class="run-name">${escapeHtml(r.competitor_name)}</span>
         <div style="display:flex;gap:0.5rem;align-items:center">
-          <span class="${r.status === 'done' ? 'badge-ok' : 'badge-run'}">${escapeHtml(r.status)}</span>
+          <span class="${r.status === 'done' ? 'badge-ok' : 'badge-run'}"
+                aria-label="status: ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span>
           <span class="run-time">${timeAgo(r.started_at)}</span>
         </div>
       </div>
@@ -400,11 +429,16 @@ async function addCompetitor() {
   const urls = document.getElementById('inp-urls').value.trim().split(/\\s+/).filter(Boolean);
   const cadence = document.getElementById('inp-cadence').value;
   if (!name || !urls.length) { toast('Name and at least one URL required'); return; }
+  const btn = document.getElementById('btn-add');
+  btn.disabled = true;
+  btn.textContent = 'Adding…';
   const res = await api('/competitors', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name, urls, cadence})
   });
+  btn.disabled = false;
+  btn.textContent = 'Add Competitor';
   if (handleUnauth(res)) return;
   if (!res.ok) { toast('Failed to add competitor'); return; }
   document.getElementById('inp-name').value = '';
@@ -421,8 +455,14 @@ async function deleteComp(id) {
   loadCompetitors();
 }
 
-async function runNow(id, name) {
+async function runNow(btn) {
+  const id = btn.dataset.id;
+  const name = btn.dataset.name;
+  btn.disabled = true;
+  btn.textContent = '…';
   const res = await api('/competitors/' + id + '/run', {method: 'POST'});
+  btn.disabled = false;
+  btn.innerHTML = '&#9654; Run Now';
   if (res.status === 429) { toast('Rate limit hit — max 5 runs/hour'); return; }
   toast('Running ' + name + '...');
   setTimeout(loadRuns, 2000);
@@ -499,7 +539,7 @@ def do_login(
     if not user or not user.password_hash or not _verify_password(password, user.password_hash):
         return RedirectResponse(url="/login?error=1", status_code=303)
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
+    response.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL, path="/")
     return response
 
 
@@ -531,7 +571,7 @@ def do_signup(
     db.commit()
     db.refresh(user)
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
+    response.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL, path="/")
     return response
 
 
@@ -551,13 +591,13 @@ async def google_login(request: Request) -> RedirectResponse:
         "&access_type=offline"
     )
     resp = RedirectResponse(url=url)
-    resp.set_cookie("oauth_state", state, httponly=True, samesite="lax", secure=True, max_age=300)
+    resp.set_cookie("oauth_state", state, httponly=True, samesite="lax", secure=True, max_age=300, path="/")
     return resp
 
 
 def _oauth_error() -> RedirectResponse:
     resp = RedirectResponse(url="/login?error=2", status_code=302)
-    resp.delete_cookie("oauth_state")
+    resp.delete_cookie("oauth_state", path="/")
     return resp
 
 
@@ -616,15 +656,15 @@ async def google_callback(
         db.refresh(user)
 
     resp = RedirectResponse(url="/", status_code=302)
-    resp.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL)
-    resp.delete_cookie("oauth_state")
+    resp.set_cookie("rr_session", _make_session_token(user.id), httponly=True, samesite="lax", secure=True, max_age=_SESSION_TTL, path="/")
+    resp.delete_cookie("oauth_state", path="/")
     return resp
 
 
 @app.get("/logout", include_in_schema=False)
 def logout() -> RedirectResponse:
     response = RedirectResponse(url="/login", status_code=302)
-    response.delete_cookie("rr_session")
+    response.delete_cookie("rr_session", path="/")
     return response
 
 
