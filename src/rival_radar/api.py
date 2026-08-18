@@ -17,16 +17,17 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 from itsdangerous import BadData, URLSafeTimedSerializer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.orm import Session, joinedload
 
 from rival_radar.config import settings
 from rival_radar.database import get_session, init_db
-from rival_radar.models import Competitor, Run, User
+from rival_radar.models import Competitor, CompetitorAlert, Run, User
 from rival_radar.nodes.scraper import validate_url_safe
 from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
+from rival_radar.tiers import TIER_ALLOWED_CADENCES, TIER_COMPETITOR_LIMIT
 
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
@@ -440,6 +441,12 @@ async function addCompetitor() {
   btn.disabled = false;
   btn.textContent = 'Add Competitor';
   if (handleUnauth(res)) return;
+  if (res.status === 403) {
+    const err = await res.json().catch(() => ({}));
+    const msg = err.detail?.message || 'Plan limit reached — upgrade to add more competitors';
+    toast(msg);
+    return;
+  }
   if (!res.ok) { toast('Failed to add competitor'); return; }
   document.getElementById('inp-name').value = '';
   document.getElementById('inp-urls').value = '';
@@ -514,6 +521,19 @@ class RunOut(BaseModel):
     started_at: str
     status: str
     brief: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class AlertCreate(BaseModel):
+    keyword: str = Field(..., min_length=1, max_length=255)
+
+
+class AlertOut(BaseModel):
+    id: int
+    competitor_id: int
+    keyword: str
+    created_at: str
 
     model_config = {"from_attributes": True}
 
@@ -693,6 +713,45 @@ def create_competitor(
             validate_url_safe(url)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if current_user is not None:
+        user = db.get(User, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        tier = user.tier
+        limit = TIER_COMPETITOR_LIMIT[tier]
+        if limit is not None:
+            count = db.query(Competitor).filter(Competitor.user_id == current_user).count()
+            if count >= limit:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "tier_limit_exceeded",
+                        "message": (
+                            f"Your {tier.value} plan allows up to {limit} competitors. "
+                            "Upgrade to Pro or Team to add more."
+                        ),
+                        "current_count": count,
+                        "limit": limit,
+                        "tier": tier.value,
+                    },
+                )
+        allowed = TIER_ALLOWED_CADENCES[tier]
+        if payload.cadence not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "cadence_not_allowed",
+                    "message": (
+                        f"The '{payload.cadence}' cadence is not available on the "
+                        f"{tier.value} plan. Allowed cadences: {sorted(allowed)}."
+                    ),
+                    "requested_cadence": payload.cadence,
+                    "allowed_cadences": sorted(allowed),
+                    "tier": tier.value,
+                },
+            )
+
     comp = Competitor(
         user_id=current_user,
         name=payload.name,
@@ -781,3 +840,91 @@ def list_runs(
         )
         for r in runs
     ]
+
+
+@app.post("/competitors/{competitor_id}/alerts", response_model=AlertOut, status_code=201)
+@limiter.limit("60/hour")
+def create_alert(
+    request: Request,
+    competitor_id: int,
+    payload: AlertCreate,
+    db: Session = Depends(get_session),
+    current_user: int | None = Depends(require_auth),
+) -> AlertOut:
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Login required for keyword alerts")
+    q = db.query(Competitor).filter(Competitor.id == competitor_id)
+    q = q.filter(Competitor.user_id == current_user)
+    if not q.first():
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    existing = (
+        db.query(CompetitorAlert)
+        .filter_by(competitor_id=competitor_id, user_id=current_user, keyword=payload.keyword.lower())
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Keyword already registered")
+    alert = CompetitorAlert(
+        competitor_id=competitor_id,
+        user_id=current_user,
+        keyword=payload.keyword.lower(),
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    return AlertOut(
+        id=alert.id,
+        competitor_id=alert.competitor_id,
+        keyword=alert.keyword,
+        created_at=alert.created_at.isoformat(),
+    )
+
+
+@app.get("/competitors/{competitor_id}/alerts", response_model=list[AlertOut])
+@limiter.limit("60/minute")
+def list_alerts(
+    request: Request,
+    competitor_id: int,
+    db: Session = Depends(get_session),
+    current_user: int | None = Depends(require_auth),
+) -> list[AlertOut]:
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Login required for keyword alerts")
+    q = db.query(Competitor).filter(Competitor.id == competitor_id)
+    q = q.filter(Competitor.user_id == current_user)
+    if not q.first():
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    alerts = (
+        db.query(CompetitorAlert)
+        .filter_by(competitor_id=competitor_id, user_id=current_user)
+        .order_by(CompetitorAlert.created_at.asc())
+        .all()
+    )
+    return [
+        AlertOut(
+            id=a.id,
+            competitor_id=a.competitor_id,
+            keyword=a.keyword,
+            created_at=a.created_at.isoformat(),
+        )
+        for a in alerts
+    ]
+
+
+@app.delete("/alerts/{alert_id}", status_code=204)
+@limiter.limit("60/hour")
+def delete_alert(
+    request: Request,
+    alert_id: int,
+    db: Session = Depends(get_session),
+    current_user: int | None = Depends(require_auth),
+) -> None:
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Login required for keyword alerts")
+    q = db.query(CompetitorAlert).filter(CompetitorAlert.id == alert_id)
+    q = q.filter(CompetitorAlert.user_id == current_user)
+    alert = q.first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    db.delete(alert)
+    db.commit()

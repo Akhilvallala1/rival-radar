@@ -1,11 +1,29 @@
+import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class UserTier(str, enum.Enum):
+    starter = "starter"
+    pro = "pro"
+    team = "team"
 
 
 class User(Base):
@@ -16,9 +34,16 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255))
     google_id: Mapped[str | None] = mapped_column(String(255), unique=True)
     name: Mapped[str | None] = mapped_column(String(255))
+    tier: Mapped[UserTier] = mapped_column(
+        SAEnum(UserTier, name="user_tier"),
+        default=UserTier.starter,
+        nullable=False,
+        server_default="starter",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     competitors: Mapped[list["Competitor"]] = relationship(back_populates="owner")
+    alerts: Mapped[list["CompetitorAlert"]] = relationship(back_populates="owner")
 
 
 class Competitor(Base):
@@ -37,6 +62,9 @@ class Competitor(Base):
         back_populates="competitor", cascade="all, delete-orphan"
     )
     runs: Mapped[list["Run"]] = relationship(
+        back_populates="competitor", cascade="all, delete-orphan"
+    )
+    alerts: Mapped[list["CompetitorAlert"]] = relationship(
         back_populates="competitor", cascade="all, delete-orphan"
     )
 
@@ -68,3 +96,23 @@ class Run(Base):
     status: Mapped[str] = mapped_column(String(50), default="running")
 
     competitor: Mapped["Competitor"] = relationship(back_populates="runs")
+
+
+class CompetitorAlert(Base):
+    __tablename__ = "competitor_alerts"
+    __table_args__ = (
+        UniqueConstraint("competitor_id", "user_id", "keyword", name="uq_alert_comp_user_kw"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    competitor_id: Mapped[int] = mapped_column(
+        ForeignKey("competitors.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    keyword: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    competitor: Mapped["Competitor"] = relationship(back_populates="alerts")
+    owner: Mapped["User"] = relationship(back_populates="alerts")

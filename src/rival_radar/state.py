@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class CompetitorEntry(TypedDict):
@@ -12,6 +12,7 @@ class DiffEntry(TypedDict):
     changed: bool
     old_excerpt: str
     new_excerpt: str
+    source: NotRequired[str]  # "web" (default) or "g2"
 
 
 class MonitorState(TypedDict):
