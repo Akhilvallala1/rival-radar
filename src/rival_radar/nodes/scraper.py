@@ -54,7 +54,8 @@ def validate_url_safe(url: str) -> None:
     except OSError as exc:
         raise ValueError(f"Could not resolve hostname {hostname!r}: {exc}") from exc
     for _af, _sock, _proto, _canon, sockaddr in results:
-        _check_ip_not_internal(ipaddress.ip_address(sockaddr[0]), sockaddr[0])
+        addr_str = str(sockaddr[0])
+        _check_ip_not_internal(ipaddress.ip_address(addr_str), addr_str)
 
 
 def strip_html(html: str) -> str:
@@ -147,12 +148,6 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                             changed = True
                             old_text = ""
 
-                        diff = {
-                            "changed": changed,
-                            "old_excerpt": old_text[:400],
-                            "new_excerpt": new_text[:400],
-                        }
-
                         new_snapshots.append(
                             Snapshot(
                                 competitor_id=comp["competitor_id"],
@@ -164,9 +159,9 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                         )
                         diffs[url] = DiffEntry(
                             competitor=comp["name"],
-                            changed=diff["changed"],
-                            old_excerpt=diff["old_excerpt"],
-                            new_excerpt=diff["new_excerpt"],
+                            changed=changed,
+                            old_excerpt=old_text[:400],
+                            new_excerpt=new_text[:400],
                         )
                     except Exception as exc:
                         diffs[url] = DiffEntry(
