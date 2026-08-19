@@ -182,6 +182,7 @@ def _fetch_feed(url: str) -> str:
 
 async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
     diffs: dict[str, DiffEntry] = {}
+    loop = asyncio.get_running_loop()  # fix-8: use running loop, not deprecated get_event_loop
 
     # Collect all competitor IDs for the batch prefetch.
     all_competitor_ids = [comp["competitor_id"] for comp in competitors]
@@ -211,15 +212,14 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                 urls: list[str] = json.loads(raw_urls) if isinstance(raw_urls, str) else raw_urls
                 for url in urls:
                     try:
-                        validate_url_safe(url)
+                        # fix-4: socket.getaddrinfo is blocking; run it off the event loop.
+                        await loop.run_in_executor(None, validate_url_safe, url)
                         if _is_g2_url(url):
                             g2_data = await _fetch_g2_page(url, http)
                             new_hash = _hash_g2_data(g2_data)
                             new_text = json.dumps(g2_data)
                         elif _is_feed_url(url):
-                            new_text = await asyncio.get_event_loop().run_in_executor(
-                                None, _fetch_feed, url
-                            )
+                            new_text = await loop.run_in_executor(None, _fetch_feed, url)
                             new_hash = compute_hash(new_text)
                         else:
                             new_text = await _fetch_page(url, http)
@@ -234,15 +234,19 @@ async def _scrape_all(competitors: list) -> dict[str, DiffEntry]:
                             changed = True
                             old_text = ""
 
-                        new_snapshots.append(
-                            Snapshot(
-                                competitor_id=comp["competitor_id"],
-                                url=url,
-                                content_hash=new_hash,
-                                text=new_text[:8000],
-                                scraped_at=datetime.utcnow(),
+                        # fix-1: only persist a new Snapshot when content actually changed
+                        # (or on the first scrape for this URL). Unchanged runs grow the
+                        # table by O(N·runs) with no informational value.
+                        if changed:
+                            new_snapshots.append(
+                                Snapshot(
+                                    competitor_id=comp["competitor_id"],
+                                    url=url,
+                                    content_hash=new_hash,
+                                    text=new_text[:8000],
+                                    scraped_at=datetime.utcnow(),
+                                )
                             )
-                        )
                         if _is_g2_url(url):
                             diffs[url] = DiffEntry(
                                 competitor=comp["name"],
