@@ -7,7 +7,7 @@ from slack_sdk.webhook import WebhookClient
 
 from rival_radar.config import settings
 from rival_radar.database import SessionLocal
-from rival_radar.models import CompetitorAlert
+from rival_radar.models import Competitor, CompetitorAlert
 from rival_radar.state import MonitorState
 
 logger = logging.getLogger(__name__)
@@ -65,25 +65,34 @@ def _send_keyword_alert(
         logger.error("Keyword alert Slack send failed: %d", response.status_code)
 
 
-def _check_keyword_alerts(diffs: dict, competitor_map: dict) -> None:
+def _check_keyword_alerts(diffs: dict, url_to_comp_id: dict[str, int]) -> None:
     """Fire immediate Slack pings for keyword matches before the LLM brief is assembled."""
-    if not settings.slack_webhook_url:
-        return
-
+    # fix-6: key by URL (guaranteed unique) not competitor name (can collide).
     changed_comp_ids = {
-        competitor_map[diff["competitor"]]
-        for diff in diffs.values()
-        if diff.get("changed") and diff["competitor"] in competitor_map
+        url_to_comp_id[url]
+        for url, diff in diffs.items()
+        if diff.get("changed") and url in url_to_comp_id
     }
     if not changed_comp_ids:
         return
 
-    with SessionLocal() as db:
-        alerts = (
-            db.query(CompetitorAlert)
-            .filter(CompetitorAlert.competitor_id.in_(changed_comp_ids))
-            .all()
-        )
+    try:
+        with SessionLocal() as db:
+            alerts = (
+                db.query(CompetitorAlert)
+                .filter(CompetitorAlert.competitor_id.in_(changed_comp_ids))
+                .all()
+            )
+            # fix-5: load per-competitor webhooks; fall back to global only when absent.
+            comp_webhooks: dict[int, str | None] = {
+                cid: wh
+                for cid, wh in db.query(Competitor.id, Competitor.slack_webhook)
+                .filter(Competitor.id.in_(changed_comp_ids))
+                .all()
+            }
+    except Exception:
+        logger.debug("Keyword alert DB query skipped", exc_info=True)
+        return
 
     if not alerts:
         return
@@ -95,31 +104,36 @@ def _check_keyword_alerts(diffs: dict, competitor_map: dict) -> None:
     for url, diff in diffs.items():
         if not diff.get("changed"):
             continue
-        comp_name = diff["competitor"]
-        comp_id = competitor_map.get(comp_name)
+        comp_id = url_to_comp_id.get(url)
         if comp_id is None:
+            continue
+        # Per-competitor webhook wins; fall back to global.
+        webhook = comp_webhooks.get(comp_id) or settings.slack_webhook_url
+        if not webhook:
             continue
         new_excerpt = diff.get("new_excerpt", "").lower()
         for alert in alerts_by_comp.get(comp_id, []):
             if alert.keyword in new_excerpt:
                 _send_keyword_alert(
                     keyword=alert.keyword,
-                    competitor_name=comp_name,
+                    competitor_name=diff["competitor"],
                     url=url,
                     new_excerpt=diff.get("new_excerpt", ""),
-                    webhook_url=settings.slack_webhook_url,
+                    webhook_url=webhook,
                 )
 
 
 def analyst(state: MonitorState) -> dict:
     diffs = state.get("diffs", {})
 
-    competitor_map = {
-        c["name"]: c["competitor_id"]
+    # fix-6: map URL → competitor_id (unique key) instead of name → id (can collide).
+    url_to_comp_id: dict[str, int] = {
+        url: c["competitor_id"]
         for c in state.get("competitors", [])
+        for url in c["urls"]
     }
 
-    _check_keyword_alerts(diffs, competitor_map)
+    _check_keyword_alerts(diffs, url_to_comp_id)
 
     by_competitor: dict[str, dict[str, list[dict]]] = defaultdict(
         lambda: {"web": [], "g2": []}
