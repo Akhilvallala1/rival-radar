@@ -3,7 +3,7 @@
 [![CI](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/Akhilvallala1/rival-radar/actions/workflows/ci.yml)
 [![Deploy](https://github.com/Akhilvallala1/rival-radar/actions/workflows/deploy.yml/badge.svg)](https://github.com/Akhilvallala1/rival-radar/actions/workflows/deploy.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: BSL 1.1](https://img.shields.io/badge/license-BSL%201.1-orange.svg)](LICENSE)
 
 **Automated competitive intelligence for B2B SaaS teams.**
 
@@ -176,4 +176,8 @@ Every push to `master` builds a Docker image, pushes to GCP Artifact Registry, a
 
 ## License
 
-MIT
+Business Source License 1.1 — free to self-host for internal use.
+Commercial hosting or reselling requires a separate license.
+Converts to MIT on 2029-01-01.
+
+Contact akhilvallala0115@gmail.com for commercial licensing.
