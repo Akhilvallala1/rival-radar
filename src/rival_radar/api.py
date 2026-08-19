@@ -26,7 +26,7 @@ from rival_radar.config import settings
 from rival_radar.database import get_session, init_db
 from rival_radar.models import Competitor, CompetitorAlert, Run, User
 from rival_radar.nodes.scraper import validate_url_safe
-from rival_radar.scheduler import run_competitor, start_scheduler, stop_scheduler
+from rival_radar.scheduler import run_competitor_by_id, start_scheduler, stop_scheduler
 from rival_radar.tiers import TIER_ALLOWED_CADENCES, TIER_COMPETITOR_LIMIT
 
 
@@ -714,8 +714,18 @@ def create_competitor(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # fix-10: validate slack_webhook to prevent SSRF via attacker-controlled URLs.
+    if payload.slack_webhook:
+        try:
+            validate_url_safe(payload.slack_webhook)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     if current_user is not None:
-        user = db.get(User, current_user)
+        # fix-2: lock the user row so concurrent requests for the same user serialize
+        # the count check, preventing TOCTOU races on tier limits (Postgres-level lock;
+        # silently ignored on SQLite which serialises writes at the DB level anyway).
+        user = db.query(User).filter(User.id == current_user).with_for_update().first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         tier = user.tier
@@ -814,7 +824,9 @@ def trigger_run(
     comp = q.first()
     if not comp:
         raise HTTPException(status_code=404, detail="Competitor not found")
-    background_tasks.add_task(run_competitor, comp)
+    # fix-9: pass the ID instead of the ORM object; run_competitor_by_id opens its
+    # own session, avoiding DetachedInstanceError after get_session closes.
+    background_tasks.add_task(run_competitor_by_id, competitor_id)
     return {"status": "queued", "competitor_id": competitor_id, "name": comp.name}
 
 
@@ -826,6 +838,7 @@ def list_runs(
     db: Session = Depends(get_session),
     current_user: int | None = Depends(require_auth),
 ) -> list[RunOut]:
+    limit = min(limit, 100)  # fix-7: cap to prevent unbounded result sets
     q = db.query(Run).options(joinedload(Run.competitor)).join(Run.competitor)
     if current_user is not None:
         q = q.filter(Competitor.user_id == current_user)
